@@ -10,7 +10,7 @@ const SLOTS = [
   { label: '18:00 - 20:00', start: '18:00', end: '20:00' },
 ];
 
-export default function ReservationScheduler({ currentUser, reloadCounter }) {
+export default function ReservationScheduler({ currentUser, reloadCounter, authFetch }) {
   const [resources, setResources] = useState([]);
   const [reservations, setReservations] = useState([]);
   const [selectedDate, setSelectedDate] = useState('');
@@ -43,7 +43,7 @@ export default function ReservationScheduler({ currentUser, reloadCounter }) {
       .then((data) => setResources(data.resources))
       .catch((err) => console.error(err));
 
-    fetch('/api/reservations')
+    authFetch('/api/reservations')
       .then((res) => res.json())
       .then((data) => setReservations(data))
       .catch((err) => console.error(err));

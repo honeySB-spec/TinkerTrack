@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Clock, TrendingUp, History } from 'lucide-react';
 
-export default function AnalyticsPanel({ reloadCounter }) {
+export default function AnalyticsPanel({ reloadCounter, authFetch }) {
   const [analyticsData, setAnalyticsData] = useState(null);
 
   useEffect(() => {
-    fetch('/api/analytics')
+    authFetch('/api/analytics')
       .then((res) => res.json())
       .then((data) => setAnalyticsData(data))
       .catch((err) => console.error("Error loading analytics:", err));

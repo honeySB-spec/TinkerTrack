@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Calendar, Users, AlertTriangle } from 'lucide-react';
 
-export default function ResourceCatalog({ currentUser, showToast, reloadCounter, onReload }) {
+export default function ResourceCatalog({ currentUser, showToast, reloadCounter, onReload, authFetch }) {
   const [resources, setResources] = useState([]);
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -52,11 +52,9 @@ export default function ResourceCatalog({ currentUser, showToast, reloadCounter,
     const startStr = startTime.replace('T', ' ');
     const endStr = endTime.replace('T', ' ');
 
-    fetch('/api/reservations', {
+    authFetch('/api/reservations', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        user_id: currentUser.id,
         resource_id: bookingModal.id,
         start_time: startStr,
         end_time: endStr
@@ -84,11 +82,9 @@ export default function ResourceCatalog({ currentUser, showToast, reloadCounter,
     const startStr = startTime.replace('T', ' ');
     const endStr = endTime.replace('T', ' ');
 
-    fetch('/api/waitlists', {
+    authFetch('/api/waitlists', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        user_id: currentUser.id,
         resource_id: bookingModal.id,
         start_time: startStr,
         end_time: endStr

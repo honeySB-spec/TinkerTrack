@@ -1,12 +1,15 @@
 import express from 'express';
 import cors from 'cors';
+import jwt from 'jsonwebtoken';
 import db from './db.js';
+import eventBus from './eventBus.js';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 5005;
+const JWT_SECRET = 'tinkertrack_secret_key_1337'; // Secure key simulation
 
 // --- Concurrency Lock Manager ---
 const resourceLocks = new Set();
@@ -23,11 +26,29 @@ async function acquireLock(resourceId, retries = 10, delay = 100) {
   return null;
 }
 
+// --- JWT Auth Middleware ---
+function authenticateJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (authHeader) {
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, JWT_SECRET, (err, decodedUser) => {
+      if (err) {
+        return res.status(403).json({ error: "Access Denied: Invalid or expired token." });
+      }
+      req.user = decodedUser;
+      next();
+    });
+  } else {
+    res.status(401).json({ error: "Access Denied: Authentication token missing." });
+  }
+}
+
 // --- Helper Functions ---
 
-// Check if role has a permission
-function checkPermission(userId, permission) {
-  const user = db.getUserById(parseInt(userId));
+// Check if user has a permission
+function checkPermission(reqUser, permission) {
+  if (!reqUser) return false;
+  const user = db.getUserById(reqUser.id);
   if (!user) return false;
   const permissions = JSON.parse(user.permissions);
   return permissions.includes(permission);
@@ -67,6 +88,12 @@ function promoteWaitlist(resourceId, startTime, endTime) {
 
   db.logActivity(topMatch.user_id, "Waitlist Promoted", `Promoted to claim resource ID: ${resourceId} for ${topMatch.start_time} - ${topMatch.end_time}`);
 }
+
+// Event Bus decoupled waitlist promotion trigger
+eventBus.on('booking:cancelled', ({ resourceId, startTime, endTime }) => {
+  console.log(`[EventBus] Asynchronous booking:cancelled trigger for resource ID: ${resourceId}. Promoting waitlists...`);
+  promoteWaitlist(resourceId, startTime, endTime);
+});
 
 // Scheduler to expire waitlist promotions that aren't confirmed in time
 function checkWaitlistExpirations() {
@@ -113,7 +140,53 @@ setInterval(checkWaitlistExpirations, 10000);
 
 // --- REST API Endpoints ---
 
-// 1. Users list for testing role switching
+// 1. Authentication Endpoints
+app.post('/api/auth/register', (req, res) => {
+  const { name, email, password } = req.body;
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: "Missing required fields (name, email, password)." });
+  }
+
+  try {
+    const id = db.createUser(name, email, password, "Undergraduate");
+    const user = db.getUserById(id);
+    const token = jwt.sign(
+      { id: user.id, name: user.name, email: user.email, role: user.role_name },
+      JWT_SECRET,
+      { expiresIn: '2h' }
+    );
+    db.logActivity(id, "Register", `User registered: ${email}`);
+    res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role_name } });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: "Missing email and password." });
+  }
+
+  const user = db.verifyPassword(email, password);
+  if (!user) {
+    return res.status(401).json({ error: "Invalid email or password." });
+  }
+
+  const token = jwt.sign(
+    { id: user.id, name: user.name, email: user.email, role: user.role_name },
+    JWT_SECRET,
+    { expiresIn: '2h' }
+  );
+  db.logActivity(user.id, "Login", `User logged in: ${email}`);
+  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role_name } });
+});
+
+app.get('/api/auth/me', authenticateJWT, (req, res) => {
+  res.json(req.user);
+});
+
+// Users list for active user switcher simulator in dev/test UI
 app.get('/api/users', (req, res) => {
   res.json(db.getUsers());
 });
@@ -130,16 +203,16 @@ app.get('/api/resources', (req, res) => {
 });
 
 // Create resource (Admin only)
-app.post('/api/resources', (req, res) => {
-  const { name, category_id, status, requires_approval, restricted_roles, description, requestor_id } = req.body;
+app.post('/api/resources', authenticateJWT, (req, res) => {
+  const { name, category_id, status, requires_approval, restricted_roles, description } = req.body;
   
-  if (!checkPermission(requestor_id, 'admin')) {
+  if (!checkPermission(req.user, 'admin')) {
     return res.status(403).json({ error: "Access denied. Admin role required." });
   }
 
   try {
     const id = db.createResource(name, category_id, status, requires_approval, restricted_roles, description);
-    db.logActivity(requestor_id, "Create Resource", `Created resource ${name} (ID: ${id})`);
+    db.logActivity(req.user.id, "Create Resource", `Created resource ${name} (ID: ${id})`);
     res.status(201).json({ id, name, category_id, status, requires_approval, restricted_roles, description });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -147,17 +220,17 @@ app.post('/api/resources', (req, res) => {
 });
 
 // Update resource (Admin only)
-app.put('/api/resources/:id', (req, res) => {
+app.put('/api/resources/:id', authenticateJWT, (req, res) => {
   const { id } = req.params;
-  const { name, category_id, status, requires_approval, restricted_roles, description, requestor_id } = req.body;
+  const { name, category_id, status, requires_approval, restricted_roles, description } = req.body;
   
-  if (!checkPermission(requestor_id, 'admin')) {
+  if (!checkPermission(req.user, 'admin')) {
     return res.status(403).json({ error: "Access denied. Admin role required." });
   }
 
   try {
     db.updateResource(id, name, category_id, status, requires_approval, restricted_roles, description);
-    db.logActivity(requestor_id, "Update Resource", `Updated resource ${name} (ID: ${id})`);
+    db.logActivity(req.user.id, "Update Resource", `Updated resource ${name} (ID: ${id})`);
     res.json({ message: "Resource updated successfully" });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -165,17 +238,16 @@ app.put('/api/resources/:id', (req, res) => {
 });
 
 // Delete resource (Admin only)
-app.delete('/api/resources/:id', (req, res) => {
+app.delete('/api/resources/:id', authenticateJWT, (req, res) => {
   const { id } = req.params;
-  const { requestor_id } = req.body;
   
-  if (!checkPermission(requestor_id, 'admin')) {
+  if (!checkPermission(req.user, 'admin')) {
     return res.status(403).json({ error: "Access denied. Admin role required." });
   }
 
   try {
     db.deleteResource(id);
-    db.logActivity(requestor_id, "Delete Resource", `Deleted resource ID: ${id}`);
+    db.logActivity(req.user.id, "Delete Resource", `Deleted resource ID: ${id}`);
     res.json({ message: "Resource deleted successfully" });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -183,7 +255,7 @@ app.delete('/api/resources/:id', (req, res) => {
 });
 
 // 3. Reservations list
-app.get('/api/reservations', (req, res) => {
+app.get('/api/reservations', authenticateJWT, (req, res) => {
   try {
     res.json(db.getReservations());
   } catch (error) {
@@ -192,11 +264,12 @@ app.get('/api/reservations', (req, res) => {
 });
 
 // Book a Resource
-app.post('/api/reservations', async (req, res) => {
-  const { user_id, resource_id, start_time, end_time } = req.body;
+app.post('/api/reservations', authenticateJWT, async (req, res) => {
+  const { resource_id, start_time, end_time } = req.body;
+  const user_id = req.user.id;
 
   // Basic Validation
-  if (!user_id || !resource_id || !start_time || !end_time) {
+  if (!resource_id || !start_time || !end_time) {
     return res.status(400).json({ error: "Missing required fields." });
   }
 
@@ -267,14 +340,14 @@ app.post('/api/reservations', async (req, res) => {
 });
 
 // Check in (starts reservation)
-app.put('/api/reservations/:id/checkin', (req, res) => {
+app.put('/api/reservations/:id/checkin', authenticateJWT, (req, res) => {
   const { id } = req.params;
-  const { user_id } = req.body;
+  const user_id = req.user.id;
   
   try {
     const booking = db.getReservationById(id);
     if (!booking) return res.status(404).json({ error: "Booking not found." });
-    if (booking.user_id !== parseInt(user_id) && !checkPermission(user_id, 'admin')) {
+    if (booking.user_id !== parseInt(user_id) && !checkPermission(req.user, 'admin')) {
       return res.status(403).json({ error: "Unauthorized." });
     }
     if (booking.status !== 'Confirmed') {
@@ -290,14 +363,14 @@ app.put('/api/reservations/:id/checkin', (req, res) => {
 });
 
 // Complete reservation
-app.put('/api/reservations/:id/complete', (req, res) => {
+app.put('/api/reservations/:id/complete', authenticateJWT, (req, res) => {
   const { id } = req.params;
-  const { user_id } = req.body;
+  const user_id = req.user.id;
   
   try {
     const booking = db.getReservationById(id);
     if (!booking) return res.status(404).json({ error: "Booking not found." });
-    if (booking.user_id !== parseInt(user_id) && !checkPermission(user_id, 'admin')) {
+    if (booking.user_id !== parseInt(user_id) && !checkPermission(req.user, 'admin')) {
       return res.status(403).json({ error: "Unauthorized." });
     }
     if (booking.status !== 'CheckedIn') {
@@ -313,14 +386,14 @@ app.put('/api/reservations/:id/complete', (req, res) => {
 });
 
 // Cancel reservation (triggers waitlist)
-app.put('/api/reservations/:id/cancel', (req, res) => {
+app.put('/api/reservations/:id/cancel', authenticateJWT, (req, res) => {
   const { id } = req.params;
-  const { user_id } = req.body;
+  const user_id = req.user.id;
   
   try {
     const booking = db.getReservationById(id);
     if (!booking) return res.status(404).json({ error: "Booking not found." });
-    if (booking.user_id !== parseInt(user_id) && !checkPermission(user_id, 'admin')) {
+    if (booking.user_id !== parseInt(user_id) && !checkPermission(req.user, 'admin')) {
       return res.status(403).json({ error: "Unauthorized." });
     }
     if (['Completed', 'Cancelled'].includes(booking.status)) {
@@ -330,10 +403,14 @@ app.put('/api/reservations/:id/cancel', (req, res) => {
     db.updateReservationStatus(id, 'Cancelled');
     db.logActivity(user_id, "Cancel Reservation", `Cancelled reservation ID: ${id}`);
     
-    // Promote the next user in the waitlist for this block
-    promoteWaitlist(booking.resource_id, booking.start_time, booking.end_time);
+    // DECOUPLED event trigger! Emit booking:cancelled event. Handled asynchronously in background.
+    eventBus.emit('booking:cancelled', {
+      resourceId: booking.resource_id,
+      startTime: booking.start_time,
+      endTime: booking.end_time
+    });
     
-    res.json({ message: "Reservation cancelled successfully" });
+    res.json({ message: "Reservation cancelled successfully." });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -342,7 +419,7 @@ app.put('/api/reservations/:id/cancel', (req, res) => {
 // 4. Waitlist Endpoints
 
 // Get active waitlist entries
-app.get('/api/waitlists', (req, res) => {
+app.get('/api/waitlists', authenticateJWT, (req, res) => {
   try {
     res.json(db.getWaitlists());
   } catch (error) {
@@ -351,10 +428,11 @@ app.get('/api/waitlists', (req, res) => {
 });
 
 // Join Waitlist
-app.post('/api/waitlists', (req, res) => {
-  const { user_id, resource_id, start_time, end_time } = req.body;
+app.post('/api/waitlists', authenticateJWT, (req, res) => {
+  const { resource_id, start_time, end_time } = req.body;
+  const user_id = req.user.id;
   
-  if (!user_id || !resource_id || !start_time || !end_time) {
+  if (!resource_id || !start_time || !end_time) {
     return res.status(400).json({ error: "Missing required fields." });
   }
 
@@ -383,9 +461,9 @@ app.post('/api/waitlists', (req, res) => {
 });
 
 // Confirm waitlist promotion
-app.post('/api/waitlists/:id/confirm', (req, res) => {
+app.post('/api/waitlists/:id/confirm', authenticateJWT, (req, res) => {
   const { id } = req.params;
-  const { user_id } = req.body;
+  const user_id = req.user.id;
   
   try {
     const item = db.getWaitlistItemById(id);
@@ -417,9 +495,9 @@ app.post('/api/waitlists/:id/confirm', (req, res) => {
 });
 
 // Reject waitlist promotion
-app.post('/api/waitlists/:id/reject', (req, res) => {
+app.post('/api/waitlists/:id/reject', authenticateJWT, (req, res) => {
   const { id } = req.params;
-  const { user_id } = req.body;
+  const user_id = req.user.id;
 
   try {
     const item = db.getWaitlistItemById(id);
@@ -437,35 +515,33 @@ app.post('/api/waitlists/:id/reject', (req, res) => {
 });
 
 // 5. Admin Approvals Endpoints
-app.post('/api/admin/reservations/:id/approve', (req, res) => {
+app.post('/api/admin/reservations/:id/approve', authenticateJWT, (req, res) => {
   const { id } = req.params;
-  const { requestor_id } = req.body;
-
-  if (!checkPermission(requestor_id, 'admin')) {
+  
+  if (!checkPermission(req.user, 'admin')) {
     return res.status(403).json({ error: "Access denied. Admin role required." });
   }
 
   try {
     db.updateReservationStatus(id, 'Confirmed');
     const booking = db.getReservationById(id);
-    db.logActivity(requestor_id, "Approve Booking", `Approved booking ID: ${id} for user ID: ${booking.user_id}`);
+    db.logActivity(req.user.id, "Approve Booking", `Approved booking ID: ${id} for user ID: ${booking.user_id}`);
     res.json({ message: "Booking approved successfully." });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/admin/reservations/:id/reject', (req, res) => {
+app.post('/api/admin/reservations/:id/reject', authenticateJWT, (req, res) => {
   const { id } = req.params;
-  const { requestor_id } = req.body;
-
-  if (!checkPermission(requestor_id, 'admin')) {
+  
+  if (!checkPermission(req.user, 'admin')) {
     return res.status(403).json({ error: "Access denied. Admin role required." });
   }
 
   try {
     db.updateReservationStatus(id, 'Cancelled');
-    db.logActivity(requestor_id, "Reject Booking", `Rejected/Cancelled booking ID: ${id}`);
+    db.logActivity(req.user.id, "Reject Booking", `Rejected/Cancelled booking ID: ${id}`);
     res.json({ message: "Booking rejected successfully." });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -473,7 +549,7 @@ app.post('/api/admin/reservations/:id/reject', (req, res) => {
 });
 
 // 6. Analytics Endpoint
-app.get('/api/analytics', (req, res) => {
+app.get('/api/analytics', authenticateJWT, (req, res) => {
   try {
     const resources = db.getResources();
     const reservations = db.getReservations();
@@ -499,7 +575,6 @@ app.get('/api/analytics', (req, res) => {
     // 3. Peak hours distribution
     const hoursCount = {};
     reservations.filter(r => r.status !== 'Cancelled').forEach(r => {
-      // start_time is "YYYY-MM-DD HH:MM", slice hour
       const hour = r.start_time.split(' ')[1]?.split(':')[0] || '10';
       hoursCount[hour] = (hoursCount[hour] || 0) + 1;
     });
@@ -519,9 +594,8 @@ app.get('/api/analytics', (req, res) => {
 });
 
 // 7. Dynamic Notifications list
-app.get('/api/notifications', (req, res) => {
-  const { user_id } = req.query;
-  if (!user_id) return res.status(400).json({ error: "User ID required." });
+app.get('/api/notifications', authenticateJWT, (req, res) => {
+  const user_id = req.user.id;
 
   try {
     const notifications = [];
@@ -581,7 +655,7 @@ app.get('/api/notifications', (req, res) => {
     }
 
     // C. Admin notifications (pending approvals)
-    const isAdmin = checkPermission(user_id, 'admin');
+    const isAdmin = checkPermission(req.user, 'admin');
     if (isAdmin) {
       const pendingApprovals = db.getReservations().filter(r => r.status === 'PendingApproval');
 
@@ -610,7 +684,6 @@ app.post('/api/test/fast-forward', (req, res) => {
     const promoted = db.getWaitlists().filter(w => w.status === 'Promoted');
     let count = 0;
     for (const item of promoted) {
-      // Set the promoted_at time back by 16 minutes, so the next expiration check will catch it
       const oldDate = new Date(Date.now() - 16 * 60 * 1000).toISOString();
       db.updateWaitlistStatus(item.id, 'Promoted', oldDate);
       count++;

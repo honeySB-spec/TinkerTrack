@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Check, X, ShieldAlert } from 'lucide-react';
 
-export default function AdminPanel({ currentUser, showToast, reloadCounter, onReload }) {
+export default function AdminPanel({ currentUser, showToast, reloadCounter, onReload, authFetch }) {
   const [resources, setResources] = useState([]);
   const [categories, setCategories] = useState([]);
   const [reservations, setReservations] = useState([]);
@@ -18,7 +18,7 @@ export default function AdminPanel({ currentUser, showToast, reloadCounter, onRe
   const rolesList = ['Undergraduate', 'Graduate', 'Staff'];
 
   useEffect(() => {
-    fetch('/api/resources')
+    authFetch('/api/resources')
       .then((res) => res.json())
       .then((data) => {
         setResources(data.resources);
@@ -29,7 +29,7 @@ export default function AdminPanel({ currentUser, showToast, reloadCounter, onRe
       })
       .catch((err) => console.error("Error loading resources:", err));
 
-    fetch('/api/reservations')
+    authFetch('/api/reservations')
       .then((res) => res.json())
       .then((data) => setReservations(data))
       .catch((err) => console.error("Error loading reservations:", err));
@@ -62,17 +62,15 @@ export default function AdminPanel({ currentUser, showToast, reloadCounter, onRe
     const endpoint = isEdit ? `/api/resources/${resourceModal.id}` : '/api/resources';
     const method = isEdit ? 'PUT' : 'POST';
 
-    fetch(endpoint, {
+    authFetch(endpoint, {
       method,
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name,
         category_id: parseInt(categoryId),
         status,
         requires_approval: requiresApproval,
         restricted_roles: restrictedRoles,
-        description,
-        requestor_id: currentUser.id
+        description
       })
     })
       .then((res) => res.json())
@@ -91,10 +89,8 @@ export default function AdminPanel({ currentUser, showToast, reloadCounter, onRe
   const handleDeleteResource = (id) => {
     if (!window.confirm("Are you sure you want to delete this resource? All active bookings for it will be cancelled.")) return;
 
-    fetch(`/api/resources/${id}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestor_id: currentUser.id })
+    authFetch(`/api/resources/${id}`, {
+      method: 'DELETE'
     })
       .then((res) => res.json())
       .then((data) => {
@@ -109,10 +105,8 @@ export default function AdminPanel({ currentUser, showToast, reloadCounter, onRe
   };
 
   const handleApprove = (id) => {
-    fetch(`/api/admin/reservations/${id}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestor_id: currentUser.id })
+    authFetch(`/api/admin/reservations/${id}/approve`, {
+      method: 'POST'
     })
       .then((res) => res.json())
       .then((data) => {
@@ -125,10 +119,8 @@ export default function AdminPanel({ currentUser, showToast, reloadCounter, onRe
   };
 
   const handleReject = (id) => {
-    fetch(`/api/admin/reservations/${id}/reject`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestor_id: currentUser.id })
+    authFetch(`/api/admin/reservations/${id}/reject`, {
+      method: 'POST'
     })
       .then((res) => res.json())
       .then((data) => {

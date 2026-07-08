@@ -1,23 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { Check, X, LogIn, LogOut, Trash2 } from 'lucide-react';
 
-export default function BookingList({ currentUser, showToast, reloadCounter, onReload }) {
+export default function BookingList({ currentUser, showToast, reloadCounter, onReload, authFetch }) {
   const [reservations, setReservations] = useState([]);
   const [waitlists, setWaitlists] = useState([]);
 
   useEffect(() => {
     // Fetch reservations
-    fetch('/api/reservations')
+    authFetch('/api/reservations')
       .then((res) => res.json())
       .then((data) => {
-        // Filter for active user (if not admin, only show theirs. Actually, even if admin, in "My Bookings" tab, it's nice to show their own. Let's filter by currentUser.id)
+        // Filter for active user
         const myResv = data.filter((r) => r.user_id === currentUser.id);
         setReservations(myResv);
       })
       .catch((err) => console.error(err));
 
     // Fetch waitlists
-    fetch('/api/waitlists')
+    authFetch('/api/waitlists')
       .then((res) => res.json())
       .then((data) => {
         const myWait = data.filter((w) => w.user_id === currentUser.id);
@@ -27,9 +27,8 @@ export default function BookingList({ currentUser, showToast, reloadCounter, onR
   }, [currentUser, reloadCounter]);
 
   const handleAction = (endpoint, method = 'PUT') => {
-    fetch(endpoint, {
+    authFetch(endpoint, {
       method: method,
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: currentUser.id })
     })
       .then((res) => res.json())

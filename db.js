@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,11 +50,16 @@ function seed() {
   ];
 
   // Seed Users
+  const saltAlice = crypto.randomBytes(16).toString('hex');
+  const saltBob = crypto.randomBytes(16).toString('hex');
+  const saltCharlie = crypto.randomBytes(16).toString('hex');
+  const saltDavid = crypto.randomBytes(16).toString('hex');
+
   data.users = [
-    { id: 1, role_id: 1, name: "Alice (Undergrad)", email: "alice@tinkertrack.edu", password_hash: "pass123" },
-    { id: 2, role_id: 2, name: "Bob (Graduate)", email: "bob@tinkertrack.edu", password_hash: "pass123" },
-    { id: 3, role_id: 3, name: "Charlie (Staff)", email: "charlie@tinkertrack.edu", password_hash: "pass123" },
-    { id: 4, role_id: 4, name: "David (Admin)", email: "admin@tinkertrack.edu", password_hash: "admin123" }
+    { id: 1, role_id: 1, name: "Alice (Undergrad)", email: "alice@tinkertrack.edu", password_hash: crypto.pbkdf2Sync("pass123", saltAlice, 10000, 64, 'sha512').toString('hex'), salt: saltAlice },
+    { id: 2, role_id: 2, name: "Bob (Graduate)", email: "bob@tinkertrack.edu", password_hash: crypto.pbkdf2Sync("pass123", saltBob, 10000, 64, 'sha512').toString('hex'), salt: saltBob },
+    { id: 3, role_id: 3, name: "Charlie (Staff)", email: "charlie@tinkertrack.edu", password_hash: crypto.pbkdf2Sync("pass123", saltCharlie, 10000, 64, 'sha512').toString('hex'), salt: saltCharlie },
+    { id: 4, role_id: 4, name: "David (Admin)", email: "admin@tinkertrack.edu", password_hash: crypto.pbkdf2Sync("admin123", saltDavid, 10000, 64, 'sha512').toString('hex'), salt: saltDavid }
   ];
 
   // Seed Categories
@@ -403,5 +409,39 @@ export default {
   // Transaction simulation wrapper (since we are sync, we can just call it)
   transaction(fn) {
     return fn;
+  },
+
+  createUser(name, email, password, role_name = "Undergraduate") {
+    if (data.users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
+      throw new Error(`User with email "${email}" already exists.`);
+    }
+    const role = data.roles.find(r => r.name === role_name);
+    if (!role) throw new Error("Invalid role.");
+
+    const id = data.users.length > 0 ? Math.max(...data.users.map(u => u.id)) + 1 : 1;
+    const salt = crypto.randomBytes(16).toString('hex');
+    const password_hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+
+    const newUser = {
+      id,
+      role_id: role.id,
+      name,
+      email: email.toLowerCase(),
+      password_hash,
+      salt
+    };
+    data.users.push(newUser);
+    save();
+    return id;
+  },
+
+  verifyPassword(email, password) {
+    const user = data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) return null;
+    const hash = crypto.pbkdf2Sync(password, user.salt, 10000, 64, 'sha512').toString('hex');
+    if (hash === user.password_hash) {
+      return this.getUserById(user.id);
+    }
+    return null;
   }
 };

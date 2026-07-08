@@ -11,43 +11,76 @@ import {
   Bell, 
   Check, 
   X,
-  FastForward
+  FastForward,
+  LogOut
 } from 'lucide-react';
 import ResourceCatalog from './components/ResourceCatalog';
 import ReservationScheduler from './components/ReservationScheduler';
 import BookingList from './components/BookingList';
 import AnalyticsPanel from './components/AnalyticsPanel';
 import AdminPanel from './components/AdminPanel';
+import LoginScreen from './components/LoginScreen';
 
 export default function App() {
-  const [users, setUsers] = useState([]);
+  const [token, setToken] = useState(localStorage.getItem('tinkertrack_token') || null);
   const [currentUser, setCurrentUser] = useState(null);
+  const [users, setUsers] = useState([]);
   const [activeTab, setActiveTab] = useState('catalog');
   const [theme, setTheme] = useState('dark');
   const [notifications, setNotifications] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [reloadCounter, setReloadCounter] = useState(0);
 
-  // Fetch Users
+  // Initialize theme
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('tinkertrack_theme') || 'dark';
+    setTheme(savedTheme);
+    if (savedTheme === 'light') {
+      document.documentElement.classList.add('light-theme');
+    } else {
+      document.documentElement.classList.remove('light-theme');
+    }
+  }, []);
+
+  // Fetch all simulation users list (open endpoint)
   useEffect(() => {
     fetch('/api/users')
       .then((res) => res.json())
-      .then((data) => {
-        setUsers(data);
-        if (data.length > 0) {
-          // Default to Alice (Undergraduate)
-          setCurrentUser(data[0]);
-        }
-      })
+      .then((data) => setUsers(data))
       .catch((err) => console.error("Error fetching users:", err));
-  }, []);
+  }, [reloadCounter]);
+
+  // Decode/Get current user profile if token is set
+  useEffect(() => {
+    if (!token) {
+      setCurrentUser(null);
+      return;
+    }
+    
+    fetch('/api/auth/me', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then((res) => {
+        if (!res.ok) {
+          handleLogout();
+          throw new Error("Session expired.");
+        }
+        return res.json();
+      })
+      .then((data) => {
+        setCurrentUser(data);
+      })
+      .catch((err) => {
+        console.error(err);
+      });
+  }, [token]);
 
   // Fetch Notifications
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !token) return;
     
     const fetchNotifications = () => {
-      fetch(`/api/notifications?user_id=${currentUser.id}`)
+      authFetch(`/api/notifications`)
         .then((res) => res.json())
         .then((data) => setNotifications(data))
         .catch((err) => console.error("Error fetching notifications:", err));
@@ -56,12 +89,48 @@ export default function App() {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 5000);
     return () => clearInterval(interval);
-  }, [currentUser, reloadCounter]);
+  }, [currentUser, token, reloadCounter]);
 
-  // Handle Theme Toggle
+  // Auth helper: Custom authenticated fetch
+  const authFetch = (url, options = {}) => {
+    const activeToken = localStorage.getItem('tinkertrack_token') || token;
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+    if (activeToken) {
+      headers['Authorization'] = `Bearer ${activeToken}`;
+    }
+    return fetch(url, { ...options, headers }).then((res) => {
+      if (res.status === 401 || res.status === 403) {
+        handleLogout();
+        showToast("Session expired. Please log in again.");
+        throw new Error("Authentication failed.");
+      }
+      return res;
+    });
+  };
+
+  const handleLoginSuccess = (newToken, newUser) => {
+    localStorage.setItem('tinkertrack_token', newToken);
+    localStorage.setItem('tinkertrack_user', JSON.stringify(newUser));
+    setToken(newToken);
+    setCurrentUser(newUser);
+    showToast(`Welcome back, ${newUser.name}!`);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('tinkertrack_token');
+    localStorage.removeItem('tinkertrack_user');
+    setToken(null);
+    setCurrentUser(null);
+    setActiveTab('catalog');
+  };
+
   const toggleTheme = () => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(nextTheme);
+    localStorage.setItem('tinkertrack_theme', nextTheme);
     if (nextTheme === 'light') {
       document.documentElement.classList.add('light-theme');
     } else {
@@ -69,7 +138,6 @@ export default function App() {
     }
   };
 
-  // Add Toast helper
   const showToast = (message) => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message }]);
@@ -82,12 +150,36 @@ export default function App() {
     setReloadCounter((prev) => prev + 1);
   };
 
-  // Handle Waitlist Confirm
-  const handleConfirmWaitlist = (waitlistId) => {
-    fetch(`/api/waitlists/${waitlistId}/confirm`, {
+  // Switch simulated account: triggers background login to fetch new JWT
+  const handleSimulateUser = (userId) => {
+    const selected = users.find(u => u.id === parseInt(userId));
+    if (!selected) return;
+    
+    const email = selected.email;
+    const password = selected.role === 'Admin' ? 'admin123' : 'pass123';
+    
+    fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: currentUser.id })
+      body: JSON.stringify({ email, password })
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error) {
+          showToast(data.error);
+        } else {
+          handleLoginSuccess(data.token, data.user);
+          showToast(`Simulated login as ${data.user.name} (${data.user.role})`);
+          handleReload();
+        }
+      })
+      .catch((err) => console.error(err));
+  };
+
+  // Action: claim slot
+  const handleConfirmWaitlist = (waitlistId) => {
+    authFetch(`/api/waitlists/${waitlistId}/confirm`, {
+      method: 'POST'
     })
       .then((res) => res.json())
       .then((data) => {
@@ -100,12 +192,10 @@ export default function App() {
       });
   };
 
-  // Handle Waitlist Reject
+  // Action: decline slot
   const handleRejectWaitlist = (waitlistId) => {
-    fetch(`/api/waitlists/${waitlistId}/reject`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: currentUser.id })
+    authFetch(`/api/waitlists/${waitlistId}/reject`, {
+      method: 'POST'
     })
       .then((res) => res.json())
       .then((data) => {
@@ -118,12 +208,10 @@ export default function App() {
       });
   };
 
-  // Handle Admin Approve
+  // Action: approve reservation
   const handleAdminApprove = (bookingId) => {
-    fetch(`/api/admin/reservations/${bookingId}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestor_id: currentUser.id })
+    authFetch(`/api/admin/reservations/${bookingId}/approve`, {
+      method: 'POST'
     })
       .then((res) => res.json())
       .then((data) => {
@@ -136,12 +224,10 @@ export default function App() {
       });
   };
 
-  // Handle Admin Reject
+  // Action: reject reservation
   const handleAdminReject = (bookingId) => {
-    fetch(`/api/admin/reservations/${bookingId}/reject`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestor_id: currentUser.id })
+    authFetch(`/api/admin/reservations/${bookingId}/reject`, {
+      method: 'POST'
     })
       .then((res) => res.json())
       .then((data) => {
@@ -154,9 +240,8 @@ export default function App() {
       });
   };
 
-  // Trigger Fast Forward Timer (Test tool)
   const triggerFastForward = () => {
-    fetch('/api/test/fast-forward', { method: 'POST' })
+    authFetch('/api/test/fast-forward', { method: 'POST' })
       .then((res) => res.json())
       .then((data) => {
         showToast(data.message);
@@ -164,12 +249,9 @@ export default function App() {
       });
   };
 
-  if (!currentUser) {
-    return (
-      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
-        <div style={{ fontFamily: 'monospace', color: '#fff' }}>INITIALIZING TINKERTRACK...</div>
-      </div>
-    );
+  // Render Login screen if not authenticated
+  if (!token || !currentUser) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
   }
 
   const isAdmin = currentUser.role === 'Admin';
@@ -180,7 +262,7 @@ export default function App() {
       <aside className="sidebar">
         <div>
           <div className="logo">
-            TinkerTrack <span>v1.0</span>
+            TinkerTrack <span>v1.1</span>
           </div>
 
           <nav>
@@ -228,11 +310,7 @@ export default function App() {
             <select 
               className="role-select" 
               value={currentUser.id} 
-              onChange={(e) => {
-                const selected = users.find(u => u.id === parseInt(e.target.value));
-                setCurrentUser(selected);
-                showToast(`Switched to ${selected.name} (${selected.role})`);
-              }}
+              onChange={(e) => handleSimulateUser(e.target.value)}
             >
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
@@ -248,11 +326,17 @@ export default function App() {
             Fast Forward 15m
           </button>
 
-          {/* Theme Switcher */}
-          <button className="theme-toggle-btn" onClick={toggleTheme}>
-            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-            {theme === 'dark' ? 'Light Theme' : 'Dark Theme'}
-          </button>
+          {/* Logout & Theme Row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+            <button className="theme-toggle-btn" onClick={toggleTheme}>
+              {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+              {theme === 'dark' ? 'Light' : 'Dark'}
+            </button>
+            <button className="theme-toggle-btn" onClick={handleLogout} style={{ borderColor: 'var(--error-color)', color: 'var(--error-color)' }}>
+              <LogOut size={14} />
+              Logout
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -299,12 +383,14 @@ export default function App() {
             showToast={showToast} 
             reloadCounter={reloadCounter}
             onReload={handleReload}
+            authFetch={authFetch}
           />
         )}
         {activeTab === 'scheduler' && (
           <ReservationScheduler 
             currentUser={currentUser}
             reloadCounter={reloadCounter}
+            authFetch={authFetch}
           />
         )}
         {activeTab === 'bookings' && (
@@ -313,11 +399,13 @@ export default function App() {
             showToast={showToast}
             reloadCounter={reloadCounter}
             onReload={handleReload}
+            authFetch={authFetch}
           />
         )}
         {activeTab === 'analytics' && (
           <AnalyticsPanel 
             reloadCounter={reloadCounter}
+            authFetch={authFetch}
           />
         )}
         {activeTab === 'admin' && isAdmin && (
@@ -326,6 +414,7 @@ export default function App() {
             showToast={showToast}
             reloadCounter={reloadCounter}
             onReload={handleReload}
+            authFetch={authFetch}
           />
         )}
       </main>
