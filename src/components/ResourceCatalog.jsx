@@ -14,6 +14,8 @@ export default function ResourceCatalog({ currentUser, showToast, reloadCounter,
   
   // Conflict state
   const [conflict, setConflict] = useState(false);
+  const [alternatives, setAlternatives] = useState(null);
+  const [loadingAlternatives, setLoadingAlternatives] = useState(false);
 
   useEffect(() => {
     fetch('/api/resources')
@@ -41,7 +43,37 @@ export default function ResourceCatalog({ currentUser, showToast, reloadCounter,
     setStartTime(formatDateTime(tomorrow, 10));
     setEndTime(formatDateTime(tomorrow, 11));
     setConflict(false);
+    setAlternatives(null);
     setBookingModal(resObj);
+  };
+
+  const fetchAlternatives = (resourceId, start, end) => {
+    setLoadingAlternatives(true);
+    authFetch(`/api/resources/${resourceId}/alternatives?start_time=${start}&end_time=${end}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setAlternatives(data);
+        setLoadingAlternatives(false);
+      })
+      .catch((err) => {
+        console.error(err);
+        setLoadingAlternatives(false);
+      });
+  };
+
+  const handleSwitchResource = (newRes) => {
+    setBookingModal(newRes);
+    setConflict(false);
+    setAlternatives(null);
+    showToast(`Switched resource target to ${newRes.name}.`);
+  };
+
+  const handleSelectSlot = (slot) => {
+    setStartTime(slot.start_time.replace(' ', 'T'));
+    setEndTime(slot.end_time.replace(' ', 'T'));
+    setConflict(false);
+    setAlternatives(null);
+    showToast(`Switched timeslot suggestion.`);
   };
 
   const handleReserve = (e) => {
@@ -65,7 +97,8 @@ export default function ResourceCatalog({ currentUser, showToast, reloadCounter,
         if (data.error) {
           if (data.error.includes('overlap') || data.error.includes('conflict')) {
             setConflict(true);
-            showToast("Overlap conflict. You can join the waitlist.");
+            showToast("Overlap conflict. Fetching smart alternatives...");
+            fetchAlternatives(bookingModal.id, startStr, endStr);
           } else {
             showToast(data.error);
           }
@@ -243,19 +276,66 @@ export default function ResourceCatalog({ currentUser, showToast, reloadCounter,
               </div>
 
               {conflict && (
-                <div style={{ border: '1px solid var(--border-color)', padding: '1rem', marginBottom: '1.5rem', borderRadius: 'var(--radius)', display: 'flex', flexDirection: 'column', gap: '0.75rem', backgroundColor: 'var(--bg-color)' }}>
-                  <div style={{ display: 'flex', gap: '0.5rem', color: 'var(--error-color)', fontSize: '0.85rem' }}>
+                <div style={{ border: '1px solid var(--border-color)', padding: '1.25rem', marginBottom: '1.5rem', borderRadius: 'var(--radius)', display: 'flex', flexDirection: 'column', gap: '1rem', backgroundColor: 'var(--accent-secondary)' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', color: 'var(--error-color)', fontSize: '0.85rem', fontWeight: 600 }}>
                     <AlertTriangle size={16} />
-                    <span>Timeslot overlaps with an existing booking. You can queue on the Waitlist for this resource and period.</span>
+                    <span>Timeslot overlaps with an existing booking.</span>
                   </div>
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={handleJoinWaitlist}
-                    style={{ width: '100%' }}
-                  >
-                    Join Waitlist Queue
-                  </button>
+
+                  {loadingAlternatives ? (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Finding intelligent alternatives...</div>
+                  ) : (
+                    <>
+                      {alternatives?.availableAlternativeResources?.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 'bold', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>AI Suggestion: Alternate Resources available now</span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                            {alternatives.availableAlternativeResources.map(r => (
+                              <button
+                                key={r.id}
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => handleSwitchResource(r)}
+                                style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem' }}
+                              >
+                                Book: {r.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {alternatives?.availableAlternativeSlots?.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 'bold', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>AI Suggestion: Alternate Timeslots for this resource</span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                            {alternatives.availableAlternativeSlots.map((slot, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => handleSelectSlot(slot)}
+                                style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', textAlign: 'left' }}
+                              >
+                                {slot.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', marginTop: '0.25rem' }}>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={handleJoinWaitlist}
+                          style={{ width: '100%', display: 'block', textAlign: 'center' }}
+                        >
+                          Join Waitlist Queue for this slot
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
