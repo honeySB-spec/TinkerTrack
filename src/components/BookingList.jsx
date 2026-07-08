@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Check, X, LogIn, LogOut, Trash2 } from 'lucide-react';
+import { Check, X, LogIn, LogOut, Trash2, Calendar, HelpCircle } from 'lucide-react';
 
 export default function BookingList({ currentUser, showToast, reloadCounter, onReload, authFetch }) {
   const [reservations, setReservations] = useState([]);
   const [waitlists, setWaitlists] = useState([]);
+  const [allWaitlists, setAllWaitlists] = useState([]);
 
   useEffect(() => {
     // Fetch reservations
     authFetch('/api/reservations')
       .then((res) => res.json())
       .then((data) => {
-        // Filter for active user
         const myResv = data.filter((r) => r.user_id === currentUser.id);
         setReservations(myResv);
       })
@@ -20,6 +20,7 @@ export default function BookingList({ currentUser, showToast, reloadCounter, onR
     authFetch('/api/waitlists')
       .then((res) => res.json())
       .then((data) => {
+        setAllWaitlists(data);
         const myWait = data.filter((w) => w.user_id === currentUser.id);
         setWaitlists(myWait);
       })
@@ -62,6 +63,20 @@ export default function BookingList({ currentUser, showToast, reloadCounter, onR
       case 'Cancelled': return { color: 'var(--error-color)', opacity: 0.6 };
       default: return {};
     }
+  };
+
+  // Calculate live waitlist position based on priority rules
+  const getQueuePosition = (item) => {
+    if (item.status !== 'Waiting') return '-';
+    
+    // Get all waitlist entries that are currently waiting for the same resource
+    const activeWaiting = allWaitlists.filter(w => w.resource_id === item.resource_id && w.status === 'Waiting');
+    
+    // Sort matching backend: priority_score DESC, created_at ASC
+    activeWaiting.sort((a, b) => b.priority_score - a.priority_score || a.created_at.localeCompare(b.created_at));
+    
+    const idx = activeWaiting.findIndex(w => w.id === item.id);
+    return idx !== -1 ? `#${idx + 1} of ${activeWaiting.length}` : '-';
   };
 
   return (
@@ -152,6 +167,7 @@ export default function BookingList({ currentUser, showToast, reloadCounter, onR
               <tr>
                 <th>Resource</th>
                 <th>Desired Timeslot</th>
+                <th>Queue Position</th>
                 <th>Priority Score</th>
                 <th>Status</th>
                 <th>Actions</th>
@@ -162,7 +178,19 @@ export default function BookingList({ currentUser, showToast, reloadCounter, onR
                 <tr key={item.id}>
                   <td style={{ fontWeight: 600 }}>{item.resource_name}</td>
                   <td className="mono">{item.start_time} to {item.end_time}</td>
-                  <td className="mono">{item.priority_score}</td>
+                  <td className="mono" style={{ fontWeight: item.status === 'Waiting' ? 'bold' : 'normal' }}>
+                    {getQueuePosition(item)}
+                  </td>
+                  <td className="mono">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <span>{item.priority_score}</span>
+                      <HelpCircle 
+                        size={12} 
+                        style={{ color: 'var(--text-secondary)', cursor: 'help' }}
+                        title="Priority Score formula: Base Role Weight - (Total Reservations * Penalty). Less prior bookings and higher role weights yield higher priority."
+                      />
+                    </div>
+                  </td>
                   <td style={getWaitlistStatusStyle(item.status)}>{item.status}</td>
                   <td>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -188,7 +216,6 @@ export default function BookingList({ currentUser, showToast, reloadCounter, onR
                         <button 
                           className="btn btn-danger" 
                           onClick={() => {
-                            // Cancel waitlist entry: we can hit decline/reject endpoint which expires/cancels it
                             handleAction(`/api/waitlists/${item.id}/reject`, 'POST');
                           }}
                           style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}
@@ -202,7 +229,7 @@ export default function BookingList({ currentUser, showToast, reloadCounter, onR
               ))}
               {waitlists.length === 0 && (
                 <tr>
-                  <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>
+                  <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>
                     You are not on any resource waitlists.
                   </td>
                 </tr>
