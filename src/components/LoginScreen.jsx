@@ -34,21 +34,7 @@ export default function LoginScreen({ onLoginSuccess }) {
       });
   };
 
-  // Quick Switch accounts list to help testing
-  const handleQuickLogin = (testEmail, testPassword) => {
-    setError('');
-    fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: testEmail, password: testPassword })
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) throw new Error(data.error);
-        onLoginSuccess(data.token, data.user);
-      })
-      .catch((err) => setError(err.message));
-  };
+
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-color)', padding: '1rem' }}>
@@ -140,48 +126,7 @@ export default function LoginScreen({ onLoginSuccess }) {
           </button>
         </div>
 
-        {/* Developer Sandbox Switchers */}
-        {!isRegister && (
-          <div style={{ marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-color)' }}>
-            <h4 style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', letterSpacing: '0.05em' }}>
-              <ShieldCheck size={14} /> Developer Sandbox Login
-            </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-              <button 
-                type="button" 
-                className="btn btn-secondary" 
-                style={{ padding: '0.4rem', fontSize: '0.75rem' }} 
-                onClick={() => handleQuickLogin('alice@tinkertrack.edu', 'pass123')}
-              >
-                Alice (Undergrad)
-              </button>
-              <button 
-                type="button" 
-                className="btn btn-secondary" 
-                style={{ padding: '0.4rem', fontSize: '0.75rem' }} 
-                onClick={() => handleQuickLogin('bob@tinkertrack.edu', 'pass123')}
-              >
-                Bob (Graduate)
-              </button>
-              <button 
-                type="button" 
-                className="btn btn-secondary" 
-                style={{ padding: '0.4rem', fontSize: '0.75rem' }} 
-                onClick={() => handleQuickLogin('charlie@tinkertrack.edu', 'pass123')}
-              >
-                Charlie (Staff)
-              </button>
-              <button 
-                type="button" 
-                className="btn btn-secondary" 
-                style={{ padding: '0.4rem', fontSize: '0.75rem' }} 
-                onClick={() => handleQuickLogin('admin@tinkertrack.edu', 'admin123')}
-              >
-                David (Admin)
-              </button>
-            </div>
-          </div>
-        )}
+
 
       </div>
     </div>

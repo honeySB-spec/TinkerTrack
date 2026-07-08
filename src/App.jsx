@@ -24,7 +24,6 @@ import LoginScreen from './components/LoginScreen';
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('tinkertrack_token') || null);
   const [currentUser, setCurrentUser] = useState(null);
-  const [users, setUsers] = useState([]);
   const [activeTab, setActiveTab] = useState('catalog');
   const [theme, setTheme] = useState('dark');
   const [notifications, setNotifications] = useState([]);
@@ -42,13 +41,7 @@ export default function App() {
     }
   }, []);
 
-  // Fetch all simulation users list (open endpoint)
-  useEffect(() => {
-    fetch('/api/users')
-      .then((res) => res.json())
-      .then((data) => setUsers(data))
-      .catch((err) => console.error("Error fetching users:", err));
-  }, [reloadCounter]);
+
 
   // Decode/Get current user profile if token is set
   useEffect(() => {
@@ -150,31 +143,7 @@ export default function App() {
     setReloadCounter((prev) => prev + 1);
   };
 
-  // Switch simulated account: triggers background login to fetch new JWT
-  const handleSimulateUser = (userId) => {
-    const selected = users.find(u => u.id === parseInt(userId));
-    if (!selected) return;
-    
-    const email = selected.email;
-    const password = selected.role === 'Admin' ? 'admin123' : 'pass123';
-    
-    fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) {
-          showToast(data.error);
-        } else {
-          handleLoginSuccess(data.token, data.user);
-          showToast(`Simulated login as ${data.user.name} (${data.user.role})`);
-          handleReload();
-        }
-      })
-      .catch((err) => console.error(err));
-  };
+
 
   // Action: claim slot
   const handleConfirmWaitlist = (waitlistId) => {
@@ -304,21 +273,7 @@ export default function App() {
         </div>
 
         <div className="sidebar-footer">
-          {/* Active Testing Role Switcher */}
-          <div className="role-switcher-card">
-            <h4>Active User Simulator</h4>
-            <select 
-              className="role-select" 
-              value={currentUser.id} 
-              onChange={(e) => handleSimulateUser(e.target.value)}
-            >
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name} ({u.role})
-                </option>
-              ))}
-            </select>
-          </div>
+
 
           {/* Test Controls */}
           <button className="theme-toggle-btn" onClick={triggerFastForward} title="Fast Forward waitlist timers by 15 mins to test expirations.">
