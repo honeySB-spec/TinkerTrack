@@ -102,11 +102,14 @@ function checkWaitlistExpirations() {
   // Find waitlists in Promoted status
   const promoted = db.getWaitlists().filter(w => w.status === 'Promoted');
   
+  const settings = db.getSettings();
+  const ttlMinutes = settings.waitlistTtlMinutes !== undefined ? settings.waitlistTtlMinutes : 15;
+
   for (const item of promoted) {
     const promotedAt = new Date(item.promoted_at);
     const diffMinutes = (now - promotedAt) / (1000 * 60);
     
-    if (diffMinutes >= 15) { // 15 minutes
+    if (diffMinutes >= ttlMinutes) { 
       expireWaitlistPromotion(item);
     }
   }
@@ -229,8 +232,30 @@ app.put('/api/resources/:id', authenticateJWT, (req, res) => {
   }
 
   try {
+    const oldResource = db.getResourceById(parseInt(id));
     db.updateResource(id, name, category_id, status, requires_approval, restricted_roles, description);
     db.logActivity(req.user.id, "Update Resource", `Updated resource ${name} (ID: ${id})`);
+    
+    // Auto-promote waitlist if resource goes from unavailable to Available
+    if (oldResource && oldResource.status !== 'Available' && status === 'Available') {
+      const waitingItems = db.getWaitlists().filter(w => w.resource_id === parseInt(id) && w.status === 'Waiting');
+      waitingItems.sort((a, b) => b.priority_score - a.priority_score || a.created_at.localeCompare(b.created_at));
+      
+      waitingItems.forEach(item => {
+        db.createNotification(
+          item.user_id,
+          'RESOURCE_AVAILABLE',
+          'Resource Back Online!',
+          `The resource "${name}" you waitlisted is now Available!`,
+          false
+        );
+      });
+      
+      waitingItems.forEach(item => {
+        promoteWaitlist(id, item.start_time, item.end_time);
+      });
+    }
+
     res.json({ message: "Resource updated successfully" });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -299,7 +324,8 @@ app.post('/api/reservations', authenticateJWT, async (req, res) => {
   const userPermissions = JSON.parse(user.permissions);
   if (!userPermissions.includes('unlimited_quota')) {
     const activeCount = db.getActiveReservationsCount(user_id);
-    const maxQuota = user.role_name === 'Undergraduate' ? 2 : 5; // Undergraduate: 2, Graduate: 5
+    const settings = db.getSettings();
+    const maxQuota = settings.quotas[user.role_name] !== undefined ? settings.quotas[user.role_name] : (user.role_name === 'Undergraduate' ? 2 : 5);
     if (activeCount >= maxQuota) {
       return res.status(403).json({ 
         error: `Booking Quota Exceeded: You have ${activeCount}/${maxQuota} active bookings. Delete or complete old bookings first.` 
@@ -440,16 +466,14 @@ app.post('/api/waitlists', authenticateJWT, (req, res) => {
     const user = db.getUserById(parseInt(user_id));
     if (!user) return res.status(404).json({ error: "User not found." });
 
-    // Priority Score formula:
-    // Base scores: Undergraduate=10, Graduate=20, Staff=30, Admin=40
-    let baseScore = 10;
-    if (user.role_name === 'Graduate') baseScore = 20;
-    if (user.role_name === 'Staff') baseScore = 30;
-    if (user.role_name === 'Admin') baseScore = 40;
+    // Priority Score formula from database settings
+    const settings = db.getSettings();
+    const baseScore = settings.priorityWeights[user.role_name] !== undefined ? settings.priorityWeights[user.role_name] : 10;
+    const penalty = settings.priorityWeights.bookingPenalty !== undefined ? settings.priorityWeights.bookingPenalty : 1;
 
     // Small modifier to prioritize users with fewer bookings (fair-use)
     const bookingCount = db.getReservations().filter(r => r.user_id === user.id).length;
-    const priorityScore = baseScore - bookingCount; // Less prior usage = higher priority
+    const priorityScore = baseScore - (bookingCount * penalty); // Less prior usage = higher priority
 
     db.createWaitlist(user_id, resource_id, start_time, end_time, priorityScore);
 
@@ -525,7 +549,18 @@ app.post('/api/admin/reservations/:id/approve', authenticateJWT, (req, res) => {
   try {
     db.updateReservationStatus(id, 'Confirmed');
     const booking = db.getReservationById(id);
-    db.logActivity(req.user.id, "Approve Booking", `Approved booking ID: ${id} for user ID: ${booking.user_id}`);
+    if (booking) {
+      db.createNotification(
+        booking.user_id,
+        'BOOKING_APPROVED',
+        'Booking Approved!',
+        `Your reservation for "${booking.resource_name}" starting at ${booking.start_time} has been APPROVED by an admin.`,
+        false,
+        null,
+        { bookingId: booking.id }
+      );
+    }
+    db.logActivity(req.user.id, "Approve Booking", `Approved booking ID: ${id} for user ID: ${booking ? booking.user_id : 'unknown'}`);
     res.json({ message: "Booking approved successfully." });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -540,7 +575,19 @@ app.post('/api/admin/reservations/:id/reject', authenticateJWT, (req, res) => {
   }
 
   try {
+    const booking = db.getReservationById(id);
     db.updateReservationStatus(id, 'Cancelled');
+    if (booking) {
+      db.createNotification(
+        booking.user_id,
+        'BOOKING_REJECTED',
+        'Booking Rejected',
+        `Your reservation request for "${booking.resource_name}" starting at ${booking.start_time} was rejected by an admin.`,
+        false,
+        null,
+        { bookingId: booking.id }
+      );
+    }
     db.logActivity(req.user.id, "Reject Booking", `Rejected/Cancelled booking ID: ${id}`);
     res.json({ message: "Booking rejected successfully." });
   } catch (error) {
@@ -551,30 +598,45 @@ app.post('/api/admin/reservations/:id/reject', authenticateJWT, (req, res) => {
 // 6. Analytics Endpoint
 app.get('/api/analytics', authenticateJWT, (req, res) => {
   try {
+    const { range, category_id } = req.query;
     const resources = db.getResources();
     const reservations = db.getReservations();
 
+    let filteredReservations = reservations;
+    if (range && range !== 'all') {
+      const days = parseInt(range);
+      const cutOff = new Date();
+      cutOff.setDate(cutOff.getDate() - days);
+      filteredReservations = reservations.filter(r => new Date(r.created_at || r.start_time) >= cutOff);
+    }
+
+    let filteredResources = resources;
+    if (category_id && category_id !== 'All') {
+      filteredResources = resources.filter(r => r.category_id === parseInt(category_id));
+    }
+
     // 1. Total bookings by resource
-    const bookingsByResource = resources.map(res => {
-      const count = reservations.filter(r => r.resource_id === res.id && r.status !== 'Cancelled').length;
+    const bookingsByResource = filteredResources.map(res => {
+      const count = filteredReservations.filter(r => r.resource_id === res.id && r.status !== 'Cancelled').length;
       return { name: res.name, count };
     });
 
     // 2. Resource utilization rate (simulated relative calculation)
-    const utilization = resources.map(res => {
-      const resvHours = reservations
+    const utilization = filteredResources.map(res => {
+      const resvHours = filteredReservations
         .filter(r => r.resource_id === res.id && ['Confirmed', 'CheckedIn', 'Completed'].includes(r.status))
         .reduce((sum, r) => {
           const hours = (new Date(r.end_time) - new Date(r.start_time)) / (1000 * 60 * 60);
           return sum + (isNaN(hours) ? 0 : hours);
         }, 0);
-      const rate = Math.min(Math.round((resvHours / 84) * 100), 100); // 84 hours max capacity simulation
+      const maxCap = range === '7' ? 42 : (range === '30' ? 180 : 84); // Scale capacity according to range
+      const rate = Math.min(Math.round((resvHours / maxCap) * 100), 100); 
       return { name: res.name, utilization: rate };
     });
 
     // 3. Peak hours distribution
     const hoursCount = {};
-    reservations.filter(r => r.status !== 'Cancelled').forEach(r => {
+    filteredReservations.filter(r => r.status !== 'Cancelled').forEach(r => {
       const hour = r.start_time.split(' ')[1]?.split(':')[0] || '10';
       hoursCount[hour] = (hoursCount[hour] || 0) + 1;
     });
@@ -593,12 +655,11 @@ app.get('/api/analytics', authenticateJWT, (req, res) => {
   }
 });
 
-// 7. Dynamic Notifications list
+// 7. Dynamic & Persistent Notifications list
 app.get('/api/notifications', authenticateJWT, (req, res) => {
   const user_id = req.user.id;
 
   try {
-    const notifications = [];
     const now = new Date();
     
     // Format current date matching timeslots
@@ -613,19 +674,23 @@ app.get('/api/notifications', authenticateJWT, (req, res) => {
     const user = db.getUserById(parseInt(user_id));
     if (!user) return res.status(404).json({ error: "User not found." });
 
-    // A. Check for promoted waitlists
-    const promotedWaitlists = db.getWaitlists().filter(w => w.user_id === user.id && w.status === 'Promoted');
+    const currentNotifs = db.getNotifications(user_id);
 
+    // A. Check for promoted waitlists and create notifications if they don't exist
+    const promotedWaitlists = db.getWaitlists().filter(w => w.user_id === user.id && w.status === 'Promoted');
     for (const item of promotedWaitlists) {
-      notifications.push({
-        id: `waitlist_${item.id}`,
-        type: 'WAITLIST_PROMOTION',
-        title: 'Waitlist Promoted!',
-        message: `Your waitlist slot for "${item.resource_name}" (${item.start_time} - ${item.end_time}) has opened up. You have 15 minutes to claim it!`,
-        actionable: true,
-        actionType: 'waitlist_confirm',
-        waitlistId: item.id
-      });
+      const exists = currentNotifs.some(n => n.type === 'WAITLIST_PROMOTION' && n.actionData && n.actionData.waitlistId === item.id);
+      if (!exists) {
+        db.createNotification(
+          user_id,
+          'WAITLIST_PROMOTION',
+          'Waitlist Promoted!',
+          `Your waitlist slot for "${item.resource_name}" (${item.start_time} - ${item.end_time}) has opened up. You have 15 minutes to claim it!`,
+          true,
+          'waitlist_confirm',
+          { waitlistId: item.id }
+        );
+      }
     }
 
     // B. Check for upcoming bookings (starts within 2 hours)
@@ -645,34 +710,165 @@ app.get('/api/notifications', authenticateJWT, (req, res) => {
     );
 
     for (const item of upcomingBookings) {
-      notifications.push({
-        id: `upcoming_${item.id}`,
-        type: 'UPCOMING_RESERVATION',
-        title: 'Upcoming Reservation',
-        message: `Your reservation for "${item.resource_name}" starts at ${item.start_time}. Remember to check in!`,
-        actionable: false
-      });
+      const exists = currentNotifs.some(n => n.type === 'UPCOMING_RESERVATION' && n.actionData && n.actionData.bookingId === item.id);
+      if (!exists) {
+        db.createNotification(
+          user_id,
+          'UPCOMING_RESERVATION',
+          'Upcoming Reservation',
+          `Your reservation for "${item.resource_name}" starts at ${item.start_time}. Remember to check in!`,
+          false,
+          null,
+          { bookingId: item.id }
+        );
+      }
     }
 
     // C. Admin notifications (pending approvals)
     const isAdmin = checkPermission(req.user, 'admin');
     if (isAdmin) {
       const pendingApprovals = db.getReservations().filter(r => r.status === 'PendingApproval');
-
       for (const item of pendingApprovals) {
-        notifications.push({
-          id: `pending_${item.id}`,
-          type: 'PENDING_APPROVAL',
-          title: 'Pending Admin Approval',
-          message: `User ${item.user_name} has requested "${item.resource_name}" for ${item.start_time} - ${item.end_time}.`,
-          actionable: true,
-          actionType: 'admin_approve',
-          bookingId: item.id
-        });
+        const exists = currentNotifs.some(n => n.type === 'PENDING_APPROVAL' && n.actionData && n.actionData.bookingId === item.id);
+        if (!exists) {
+          db.createNotification(
+            user_id,
+            'PENDING_APPROVAL',
+            'Pending Admin Approval',
+            `User ${item.user_name} has requested "${item.resource_name}" for ${item.start_time} - ${item.end_time}.`,
+            true,
+            'admin_approve',
+            { bookingId: item.id }
+          );
+        }
       }
     }
 
-    res.json(notifications);
+    res.json(db.getNotifications(user_id));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Mark notification as read
+app.post('/api/notifications/:id/read', authenticateJWT, (req, res) => {
+  try {
+    db.markNotificationAsRead(req.params.id);
+    res.json({ message: "Notification marked as read." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Mark all notifications as read
+app.post('/api/notifications/read-all', authenticateJWT, (req, res) => {
+  try {
+    db.markAllNotificationsAsRead(req.user.id);
+    res.json({ message: "All notifications marked as read." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 8. Admin Settings Endpoints
+app.get('/api/admin/settings', authenticateJWT, (req, res) => {
+  if (!checkPermission(req.user, 'admin')) {
+    return res.status(403).json({ error: "Access denied. Admin role required." });
+  }
+  res.json(db.getSettings());
+});
+
+app.put('/api/admin/settings', authenticateJWT, (req, res) => {
+  if (!checkPermission(req.user, 'admin')) {
+    return res.status(403).json({ error: "Access denied. Admin role required." });
+  }
+  try {
+    db.updateSettings(req.body);
+    db.logActivity(req.user.id, "Update Settings", "Updated system settings & quotas");
+    res.json({ message: "Settings updated successfully" });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// 9. Intelligent Scheduling (Alternative Slots & Alternative Resources Suggestions)
+app.get('/api/resources/:id/alternatives', authenticateJWT, (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { start_time, end_time } = req.query;
+    if (!start_time || !end_time) {
+      return res.status(400).json({ error: "Missing start_time or end_time." });
+    }
+
+    const resource = db.getResourceById(id);
+    if (!resource) return res.status(404).json({ error: "Resource not found." });
+
+    const allResources = db.getResources();
+    const allReservations = db.getReservations();
+
+    // 1. Find other available resources of same category for exact selected timeslot
+    const availableAlternativeResources = allResources.filter(r => 
+      r.id !== id &&
+      r.category_id === resource.category_id &&
+      r.status === 'Available' &&
+      !allReservations.some(resv => 
+        resv.resource_id === r.id &&
+        ['Confirmed', 'PendingApproval', 'CheckedIn'].includes(resv.status) &&
+        resv.start_time < end_time &&
+        resv.end_time > start_time
+      )
+    );
+
+    // 2. Find next 3 alternative free timeslots for the SAME resource on the same or next day
+    const availableAlternativeSlots = [];
+    const dateCenter = new Date(start_time.split(' ')[0]);
+    
+    const testDays = [0, 1, 2]; // same day, tomorrow, next day
+    const candidateSlots = [
+      { start: '08:00', end: '10:00' },
+      { start: '10:00', end: '12:00' },
+      { start: '12:00', end: '14:00' },
+      { start: '14:00', end: '16:00' },
+      { start: '16:00', end: '18:00' },
+      { start: '18:00', end: '20:00' }
+    ];
+
+    for (const dayOffset of testDays) {
+      const d = new Date(dateCenter);
+      d.setDate(d.getDate() + dayOffset);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+
+      for (const slot of candidateSlots) {
+        const slotStart = `${dateStr} ${slot.start}`;
+        const slotEnd = `${dateStr} ${slot.end}`;
+
+        // Ignore past slots
+        const now = new Date();
+        const slotStartDate = new Date(slotStart.replace(' ', 'T'));
+        if (slotStartDate < now) continue;
+
+        // Check overlap
+        const overlap = allReservations.some(resv => 
+          resv.resource_id === id &&
+          ['Confirmed', 'PendingApproval', 'CheckedIn'].includes(resv.status) &&
+          resv.start_time < slotEnd &&
+          resv.end_time > slotStart
+        );
+
+        if (!overlap) {
+          // Format display label
+          const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ` ${slot.start} - ${slot.end}`;
+          availableAlternativeSlots.push({ start_time: slotStart, end_time: slotEnd, label });
+          if (availableAlternativeSlots.length >= 3) break;
+        }
+      }
+      if (availableAlternativeSlots.length >= 3) break;
+    }
+
+    res.json({ availableAlternativeResources, availableAlternativeSlots });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

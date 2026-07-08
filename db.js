@@ -15,7 +15,24 @@ let data = {
   resources: [],
   reservations: [],
   waitlists: [],
-  activity_logs: []
+  activity_logs: [],
+  notifications: [],
+  settings: {
+    quotas: {
+      Undergraduate: 2,
+      Graduate: 5,
+      Staff: 999,
+      Admin: 999
+    },
+    priorityWeights: {
+      Undergraduate: 10,
+      Graduate: 20,
+      Staff: 30,
+      Admin: 40,
+      bookingPenalty: 1
+    },
+    waitlistTtlMinutes: 15
+  }
 };
 
 // Save helper
@@ -28,6 +45,29 @@ function load() {
   if (fs.existsSync(dbPath)) {
     try {
       data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+      
+      // Migrations for existing DB files
+      if (!data.notifications) {
+        data.notifications = [];
+      }
+      if (!data.settings) {
+        data.settings = {
+          quotas: {
+            Undergraduate: 2,
+            Graduate: 5,
+            Staff: 999,
+            Admin: 999
+          },
+          priorityWeights: {
+            Undergraduate: 10,
+            Graduate: 20,
+            Staff: 30,
+            Admin: 40,
+            bookingPenalty: 1
+          },
+          waitlistTtlMinutes: 15
+        };
+      }
     } catch (e) {
       console.error("Error reading database file, using empty data", e);
     }
@@ -148,6 +188,23 @@ function seed() {
   data.reservations = [];
   data.waitlists = [];
   data.activity_logs = [];
+  data.notifications = [];
+  data.settings = {
+    quotas: {
+      Undergraduate: 2,
+      Graduate: 5,
+      Staff: 999,
+      Admin: 999
+    },
+    priorityWeights: {
+      Undergraduate: 10,
+      Graduate: 20,
+      Staff: 30,
+      Admin: 40,
+      bookingPenalty: 1
+    },
+    waitlistTtlMinutes: 15
+  };
   console.log("Database seeded successfully!");
 }
 
@@ -443,5 +500,59 @@ export default {
       return this.getUserById(user.id);
     }
     return null;
+  },
+
+  // Settings
+  getSettings() {
+    return data.settings;
+  },
+
+  updateSettings(newSettings) {
+    data.settings = { ...data.settings, ...newSettings };
+    save();
+  },
+
+  // Notifications
+  getNotifications(userId) {
+    return (data.notifications || []).filter(n => n.user_id === parseInt(userId));
+  },
+
+  createNotification(userId, type, title, message, actionable = false, actionType = null, actionData = null) {
+    const id = data.notifications && data.notifications.length > 0 ? Math.max(...data.notifications.map(n => n.id)) + 1 : 1;
+    const newNotif = {
+      id,
+      user_id: parseInt(userId),
+      type,
+      title,
+      message,
+      read: false,
+      actionable,
+      actionType,
+      actionData,
+      created_at: new Date().toISOString()
+    };
+    if (!data.notifications) data.notifications = [];
+    data.notifications.push(newNotif);
+    save();
+    return id;
+  },
+
+  markNotificationAsRead(id) {
+    const nIdx = data.notifications.findIndex(n => n.id === parseInt(id));
+    if (nIdx !== -1) {
+      data.notifications[nIdx].read = true;
+      save();
+    }
+  },
+
+  markAllNotificationsAsRead(userId) {
+    let changed = false;
+    (data.notifications || []).forEach(n => {
+      if (n.user_id === parseInt(userId) && !n.read) {
+        n.read = true;
+        changed = true;
+      }
+    });
+    if (changed) save();
   }
 };
