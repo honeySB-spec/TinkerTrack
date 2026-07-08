@@ -215,8 +215,8 @@ export default function App() {
                     <ShieldAlert size={18} />
                     Admin Panel
                   </button>
-                )}
-              </li>
+                </li>
+              )}
             </ul>
           </nav>
         </div>
