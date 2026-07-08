@@ -12,7 +12,8 @@ import {
   Check, 
   X,
   FastForward,
-  LogOut
+  LogOut,
+  Sparkles
 } from 'lucide-react';
 import ResourceCatalog from './components/ResourceCatalog';
 import ReservationScheduler from './components/ReservationScheduler';
@@ -20,6 +21,7 @@ import BookingList from './components/BookingList';
 import AnalyticsPanel from './components/AnalyticsPanel';
 import AdminPanel from './components/AdminPanel';
 import LoginScreen from './components/LoginScreen';
+import AiAssistant from './components/AiAssistant';
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('tinkertrack_token') || null);
@@ -27,6 +29,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('catalog');
   const [theme, setTheme] = useState('dark');
   const [notifications, setNotifications] = useState([]);
+  const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [reloadCounter, setReloadCounter] = useState(0);
 
@@ -143,6 +146,18 @@ export default function App() {
     setReloadCounter((prev) => prev + 1);
   };
 
+  const handleReadNotif = (notifId) => {
+    authFetch(`/api/notifications/${notifId}/read`, { method: 'POST' })
+      .then(() => handleReload())
+      .catch((err) => console.error("Error reading notification:", err));
+  };
+
+  const handleReadAllNotifs = () => {
+    authFetch(`/api/notifications/read-all`, { method: 'POST' })
+      .then(() => handleReload())
+      .catch((err) => console.error("Error reading notifications:", err));
+  };
+
 
 
   // Action: claim slot
@@ -254,6 +269,12 @@ export default function App() {
                   My Bookings
                 </button>
               </li>
+              <li className={`menu-item ${activeTab === 'assistant' ? 'active' : ''}`}>
+                <button onClick={() => setActiveTab('assistant')}>
+                  <Sparkles size={18} style={{ color: 'var(--success-color)' }} />
+                  AI Assistant
+                </button>
+              </li>
               <li className={`menu-item ${activeTab === 'analytics' ? 'active' : ''}`}>
                 <button onClick={() => setActiveTab('analytics')}>
                   <BarChart3 size={18} />
@@ -297,37 +318,98 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="main-content">
-        {/* Banner Notifications (Actionable) */}
-        {notifications.map((n) => (
+        {/* Top Header Bar with User Details & Notification Bell */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Logged in as:</span>
+            <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{currentUser.name} ({currentUser.role})</span>
+          </div>
+
+          <div style={{ position: 'relative' }}>
+            <button className="theme-toggle-btn" style={{ position: 'relative', border: '1px solid var(--border-color)', background: 'none', cursor: 'pointer', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={() => setNotifDropdownOpen(!notifDropdownOpen)}>
+              <Bell size={16} />
+              <span>Alerts</span>
+              {notifications.filter(n => !n.read).length > 0 && (
+                <span style={{ backgroundColor: 'var(--error-color)', color: 'white', borderRadius: '50%', minWidth: '16px', height: '16px', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', padding: '0 4px' }}>
+                  {notifications.filter(n => !n.read).length}
+                </span>
+              )}
+            </button>
+
+            {notifDropdownOpen && (
+              <div className="notif-dropdown" style={{ position: 'absolute', right: 0, top: '35px', width: '340px', backgroundColor: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius)', boxShadow: '0 10px 30px var(--shadow-color)', zIndex: 100, padding: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+                  <h4 style={{ margin: 0, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Notifications ({notifications.length})</h4>
+                  {notifications.filter(n => !n.read).length > 0 && (
+                    <button style={{ border: 'none', background: 'none', color: 'var(--text-secondary)', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }} onClick={(e) => { e.stopPropagation(); handleReadAllNotifs(); }}>
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+                <div style={{ maxHeight: '250px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {notifications.map(n => (
+                    <div key={n.id} style={{ padding: '0.6rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', opacity: n.read ? 0.6 : 1, display: 'flex', flexDirection: 'column', gap: '0.25rem', cursor: 'pointer' }} onClick={() => handleReadNotif(n.id)}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                        <span style={{ color: n.read ? 'var(--text-secondary)' : 'var(--text-color)' }}>{n.title}</span>
+                        {!n.read && <span style={{ width: '6px', height: '6px', backgroundColor: 'var(--error-color)', borderRadius: '50%', display: 'inline-block' }}></span>}
+                      </div>
+                      <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.75rem' }}>{n.message}</p>
+                      {n.actionable && !n.read && (
+                        <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                          {n.actionType === 'waitlist_confirm' && (
+                            <>
+                              <button className="btn" onClick={(e) => { e.stopPropagation(); handleConfirmWaitlist(n.actionData?.waitlistId || n.waitlistId); }} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Claim</button>
+                              <button className="btn btn-danger" onClick={(e) => { e.stopPropagation(); handleRejectWaitlist(n.actionData?.waitlistId || n.waitlistId); }} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Decline</button>
+                            </>
+                          )}
+                          {n.actionType === 'admin_approve' && (
+                            <>
+                              <button className="btn" onClick={(e) => { e.stopPropagation(); handleAdminApprove(n.actionData?.bookingId || n.bookingId); }} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Approve</button>
+                              <button className="btn btn-danger" onClick={(e) => { e.stopPropagation(); handleAdminReject(n.actionData?.bookingId || n.bookingId); }} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Reject</button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {notifications.length === 0 && (
+                    <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem 1rem', fontSize: '0.8rem' }}>No notifications yet.</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Banner Notifications (Actionable Alerts - Unread Only) */}
+        {notifications.filter(n => n.actionable && !n.read).map((n) => (
           <div key={n.id} className="notification-banner">
             <div>
               <h4>{n.title}</h4>
               <p>{n.message}</p>
             </div>
-            {n.actionable && (
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {n.actionType === 'waitlist_confirm' && (
-                  <>
-                    <button className="btn btn-secondary" onClick={() => handleConfirmWaitlist(n.waitlistId)} style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem' }}>
-                      <Check size={14} /> Claim Slot
-                    </button>
-                    <button className="btn btn-danger" onClick={() => handleRejectWaitlist(n.waitlistId)} style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem' }}>
-                      <X size={14} /> Decline
-                    </button>
-                  </>
-                )}
-                {n.actionType === 'admin_approve' && (
-                  <>
-                    <button className="btn btn-secondary" onClick={() => handleAdminApprove(n.bookingId)} style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem' }}>
-                      <Check size={14} /> Approve
-                    </button>
-                    <button className="btn btn-danger" onClick={() => handleAdminReject(n.bookingId)} style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem' }}>
-                      <X size={14} /> Reject
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {n.actionType === 'waitlist_confirm' && (
+                <>
+                  <button className="btn btn-secondary" onClick={() => handleConfirmWaitlist(n.actionData?.waitlistId || n.waitlistId)} style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem' }}>
+                    <Check size={14} /> Claim Slot
+                  </button>
+                  <button className="btn btn-danger" onClick={() => handleRejectWaitlist(n.actionData?.waitlistId || n.waitlistId)} style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem' }}>
+                    <X size={14} /> Decline
+                  </button>
+                </>
+              )}
+              {n.actionType === 'admin_approve' && (
+                <>
+                  <button className="btn btn-secondary" onClick={() => handleAdminApprove(n.actionData?.bookingId || n.bookingId)} style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem' }}>
+                    <Check size={14} /> Approve
+                  </button>
+                  <button className="btn btn-danger" onClick={() => handleAdminReject(n.actionData?.bookingId || n.bookingId)} style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem' }}>
+                    <X size={14} /> Reject
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         ))}
 
@@ -355,6 +437,14 @@ export default function App() {
             reloadCounter={reloadCounter}
             onReload={handleReload}
             authFetch={authFetch}
+          />
+        )}
+        {activeTab === 'assistant' && (
+          <AiAssistant 
+            currentUser={currentUser}
+            showToast={showToast}
+            authFetch={authFetch}
+            onReload={handleReload}
           />
         )}
         {activeTab === 'analytics' && (
