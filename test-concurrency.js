@@ -40,6 +40,27 @@ child.stderr.on('data', (data) => {
 
 async function runConcurrencyTest() {
   console.log("\n--- Starting Concurrency Test ---");
+  
+  // Log in to obtain JWT token first
+  let token = '';
+  try {
+    const loginRes = await fetch(`http://localhost:${PORT}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'alice@tinkertrack.edu', password: 'pass123' })
+    });
+    const loginData = await loginRes.json();
+    token = loginData.token;
+  } catch (err) {
+    console.error("Login failed before concurrency test", err);
+  }
+
+  if (!token) {
+    console.log("🔴 FAILURE: Could not obtain JWT token for test.");
+    child.kill();
+    process.exit(1);
+  }
+
   console.log("Simulating 2 users booking the same slot at the exact same millisecond...");
 
   const testBooking = {
@@ -64,13 +85,19 @@ async function runConcurrencyTest() {
   // We send two fetch requests simultaneously
   const p1 = fetch(`http://localhost:${PORT}/api/reservations`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
     body: JSON.stringify(testBooking)
   });
 
   const p2 = fetch(`http://localhost:${PORT}/api/reservations`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
     body: JSON.stringify(testBooking)
   });
 
