@@ -1,0 +1,204 @@
+# TinkerTrack — Shared Resource Management System
+
+##
+
+## Overview
+
+Every shared space faces the same challenge: limited resources and many people who want to use them.
+
+Whether it's study rooms, projectors, cameras, sports equipment, lab instruments, meeting spaces, workshop tools, or any other shared asset, managing access efficiently becomes increasingly difficult as the number of users grows.
+
+Your task is to design and build a system that helps users discover, reserve, and manage shared resources in an organized and intuitive manner.
+
+The goal of this challenge is not simply to create a booking platform, but to build a solution that could realistically be used by a hostel, student club, laboratory, makerspace, startup, or university department.
+
+The system should feel reliable, scalable, and pleasant to use.
+
+---
+
+## Problem Statement
+
+Build a platform that allows users to:
+
+- Discover available resources.
+- Check resource availability.
+- Reserve resources for a period of time.
+- View and manage their reservations.
+- Access booking history.
+
+The platform should also provide sufficient controls for resource administrators to manage resources and oversee their usage.
+
+You are free to make reasonable assumptions wherever necessary. Any assumptions made should be clearly documented.
+
+---
+
+## Core Requirements
+
+Your solution should allow users to:
+
+### Resource Discovery
+
+Users should be able to:
+
+- View all available resources.
+- Browse resources through a clean interface.
+- Access relevant information about each resource.
+- Determine whether a resource is available.
+
+The way resources are represented is entirely up to you.
+
+---
+
+### Reservation System
+
+Users should be able to:
+
+- Reserve resources.
+- View upcoming reservations.
+- Modify reservations.
+- Cancel reservations.
+
+The booking experience should be intuitive and easy to use.
+
+---
+
+### Resource Management
+
+Administrators should be able to:
+
+- Add new resources.
+- Update resource information.
+- Remove resources when necessary.
+- Monitor resource availability.
+
+The exact management workflow is left to your discretion.
+
+---
+
+### Reservation Consistency
+
+The platform should ensure that reservations remain valid and consistent.
+
+Your system should appropriately handle situations where:
+
+- Multiple users interact with the same resource.
+- Scheduling conflicts occur.
+- Invalid reservation requests are made.
+
+How these situations are handled is part of the challenge.
+
+---
+
+### History & Tracking
+
+The system should maintain a record of resource usage.
+
+Users should be able to view relevant booking information, and administrators should have sufficient visibility into resource activity.
+
+---
+
+## Design Freedom
+
+One of the goals of this challenge is to evaluate your engineering decisions.
+
+You are free to decide your comfortable tech stack and system architecture
+
+We care more about your reasoning than the specific technologies you choose.
+
+Document important decisions wherever possible.
+
+---
+
+## Brownie Points ⭐
+
+The following are completely optional.
+
+Implementing one or more of these ideas may strengthen your submission.
+
+### 1. Waitlist System
+
+Allow users to express interest in resources that are currently unavailable and handle future availability intelligently.
+
+---
+
+### 2. Analytics & Insights
+
+Provide useful information such as:
+
+- Resource utilization
+- Booking trends
+- Popular resources
+- Usage statistics
+
+Visualizations are encouraged.
+
+---
+
+### 3. Notification System
+
+Implement reminders or alerts for important events such as:
+
+- Upcoming reservations
+- Reservation updates
+- Resource availability changes
+
+---
+
+### 4. Advanced Access Rules
+
+Examples include:
+
+- Priority-based access
+- Approval workflows
+- Category-specific restrictions
+- Booking quotas
+
+---
+
+### 5. Intelligent Scheduling
+
+Help users find suitable booking slots or suggest alternative resources.
+
+---
+
+### 6. AI Integration
+
+AI integration is **not necessary**.
+
+However, if used meaningfully, it may strengthen your submission.
+
+Examples include:
+
+- Smart resource recommendations
+- Natural-language booking interfaces
+- Resource demand forecasting
+- Intelligent scheduling assistance
+
+Simply embedding a chatbot without meaningful functionality is unlikely to add value.
+
+---
+
+### 7. User Experience
+
+Thoughtful UI/UX, responsive design, accessibility considerations, and polished interactions can significantly improve the quality of your submission.
+
+---
+
+## What We Are Looking For
+
+We will evaluate submissions based on:
+
+- Problem-solving ability
+- System design
+- Code quality
+- Maintainability
+- User experience
+- Handling of edge cases
+- Scalability
+- Documentation quality
+- Creativity and initiative
+
+A simple solution that is thoughtfully designed is often better than a feature-heavy solution with poor architecture.
+
+
+

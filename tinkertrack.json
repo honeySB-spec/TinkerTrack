@@ -1,0 +1,168 @@
+{
+  "roles": [
+    {
+      "id": 1,
+      "name": "Undergraduate",
+      "permissions": [
+        "read",
+        "reserve"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Graduate",
+      "permissions": [
+        "read",
+        "reserve",
+        "bypass_approval"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Staff",
+      "permissions": [
+        "read",
+        "reserve",
+        "bypass_approval",
+        "unlimited_quota"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Admin",
+      "permissions": [
+        "read",
+        "reserve",
+        "bypass_approval",
+        "unlimited_quota",
+        "admin"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": 1,
+      "role_id": 1,
+      "name": "Alice (Undergrad)",
+      "email": "alice@tinkertrack.edu",
+      "password_hash": "pass123"
+    },
+    {
+      "id": 2,
+      "role_id": 2,
+      "name": "Bob (Graduate)",
+      "email": "bob@tinkertrack.edu",
+      "password_hash": "pass123"
+    },
+    {
+      "id": 3,
+      "role_id": 3,
+      "name": "Charlie (Staff)",
+      "email": "charlie@tinkertrack.edu",
+      "password_hash": "pass123"
+    },
+    {
+      "id": 4,
+      "role_id": 4,
+      "name": "David (Admin)",
+      "email": "admin@tinkertrack.edu",
+      "password_hash": "admin123"
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "Meeting Spaces",
+      "description": "Rooms and areas for group work or study."
+    },
+    {
+      "id": 2,
+      "name": "Lab Equipment",
+      "description": "High-value laboratory instruments and tools."
+    },
+    {
+      "id": 3,
+      "name": "Media Gear",
+      "description": "Cameras, audio recorders, and presentation tools."
+    }
+  ],
+  "resources": [
+    {
+      "id": 1,
+      "category_id": 1,
+      "name": "Study Room A",
+      "status": "Available",
+      "requires_approval": 0,
+      "restricted_roles": [],
+      "description": "Collaborative study room for up to 4 people. Has whiteboard."
+    },
+    {
+      "id": 2,
+      "category_id": 1,
+      "name": "Study Room B",
+      "status": "Available",
+      "requires_approval": 0,
+      "restricted_roles": [],
+      "description": "Collaborative study room for up to 6 people. Has TV screen."
+    },
+    {
+      "id": 3,
+      "category_id": 1,
+      "name": "Conference Room",
+      "status": "Available",
+      "requires_approval": 1,
+      "restricted_roles": [],
+      "description": "Large conference room. Requires approval for non-staff."
+    },
+    {
+      "id": 4,
+      "category_id": 2,
+      "name": "Ultimaker 3D Printer",
+      "status": "Available",
+      "requires_approval": 1,
+      "restricted_roles": [],
+      "description": "FDM 3D printer. High-demand resource, requires training approval."
+    },
+    {
+      "id": 5,
+      "category_id": 2,
+      "name": "Zeiss Electron Microscope",
+      "status": "Available",
+      "requires_approval": 1,
+      "restricted_roles": [
+        "Undergraduate"
+      ],
+      "description": "Restricted to Graduates and Staff only. Requires admin approval."
+    },
+    {
+      "id": 6,
+      "category_id": 2,
+      "name": "Tektronix Oscilloscope",
+      "status": "Available",
+      "requires_approval": 0,
+      "restricted_roles": [],
+      "description": "100MHz Digital Oscilloscope for hardware debugging."
+    },
+    {
+      "id": 7,
+      "category_id": 3,
+      "name": "Canon EOS R5 DSLR",
+      "status": "Available",
+      "requires_approval": 0,
+      "restricted_roles": [],
+      "description": "High-resolution full-frame mirrorless camera with 24-70mm lens."
+    },
+    {
+      "id": 8,
+      "category_id": 3,
+      "name": "Epson 4K Projector",
+      "status": "Available",
+      "requires_approval": 0,
+      "restricted_roles": [],
+      "description": "Portable ultra-short throw projector."
+    }
+  ],
+  "reservations": [],
+  "waitlists": [],
+  "activity_logs": []
+}

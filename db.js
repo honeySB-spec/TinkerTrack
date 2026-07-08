@@ -71,7 +71,7 @@ function seed() {
       name: "Study Room A", 
       status: "Available", 
       requires_approval: 0, 
-      restricted_roles: [], 
+      restricted_roles: JSON.stringify([]), 
       description: "Collaborative study room for up to 4 people. Has whiteboard." 
     },
     { 
@@ -80,7 +80,7 @@ function seed() {
       name: "Study Room B", 
       status: "Available", 
       requires_approval: 0, 
-      restricted_roles: [], 
+      restricted_roles: JSON.stringify([]), 
       description: "Collaborative study room for up to 6 people. Has TV screen." 
     },
     { 
@@ -89,7 +89,7 @@ function seed() {
       name: "Conference Room", 
       status: "Available", 
       requires_approval: 1, 
-      restricted_roles: [], 
+      restricted_roles: JSON.stringify([]), 
       description: "Large conference room. Requires approval for non-staff." 
     },
     { 
@@ -98,7 +98,7 @@ function seed() {
       name: "Ultimaker 3D Printer", 
       status: "Available", 
       requires_approval: 1, 
-      restricted_roles: [], 
+      restricted_roles: JSON.stringify([]), 
       description: "FDM 3D printer. High-demand resource, requires training approval." 
     },
     { 
@@ -107,7 +107,7 @@ function seed() {
       name: "Zeiss Electron Microscope", 
       status: "Available", 
       requires_approval: 1, 
-      restricted_roles: ["Undergraduate"], 
+      restricted_roles: JSON.stringify(["Undergraduate"]), 
       description: "Restricted to Graduates and Staff only. Requires admin approval." 
     },
     { 
@@ -116,7 +116,7 @@ function seed() {
       name: "Tektronix Oscilloscope", 
       status: "Available", 
       requires_approval: 0, 
-      restricted_roles: [], 
+      restricted_roles: JSON.stringify([]), 
       description: "100MHz Digital Oscilloscope for hardware debugging." 
     },
     { 
@@ -125,7 +125,7 @@ function seed() {
       name: "Canon EOS R5 DSLR", 
       status: "Available", 
       requires_approval: 0, 
-      restricted_roles: [], 
+      restricted_roles: JSON.stringify([]), 
       description: "High-resolution full-frame mirrorless camera with 24-70mm lens." 
     },
     { 
@@ -134,7 +134,7 @@ function seed() {
       name: "Epson 4K Projector", 
       status: "Available", 
       requires_approval: 0, 
-      restricted_roles: [], 
+      restricted_roles: JSON.stringify([]), 
       description: "Portable ultra-short throw projector." 
     }
   ];
@@ -209,7 +209,7 @@ export default {
       name,
       status,
       requires_approval: requires_approval ? 1 : 0,
-      restricted_roles,
+      restricted_roles: typeof restricted_roles === 'string' ? restricted_roles : JSON.stringify(restricted_roles || []),
       description
     };
     data.resources.push(newRes);
@@ -232,7 +232,7 @@ export default {
       category_id: parseInt(category_id),
       status,
       requires_approval: requires_approval ? 1 : 0,
-      restricted_roles,
+      restricted_roles: typeof restricted_roles === 'string' ? restricted_roles : JSON.stringify(restricted_roles || []),
       description
     };
     save();
