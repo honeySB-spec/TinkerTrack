@@ -172,29 +172,38 @@ The "AI Assistant" sidebar panel offloads natural language processing to the bac
 - `POST /api/auth/login`: Authenticate credentials. Returns signed JWT.
 - `GET /api/auth/me`: Decode current user credentials.
 
-### 7.2 Reservation Endpoints (Port 5030)
-- `GET /api/reservations`: Get reservations.
+### 7.2 Resource Catalog Endpoints (Port 5020)
+- `GET /api/resources`: Fetch list of all active resources and their metadata.
+- `POST /api/resources`: Create a new resource.
+- `PUT /api/resources/:id`: Update resource details (e.g., description, requires_approval, restricted_roles).
+- `DELETE /api/resources/:id`: Delete a resource from the catalog.
+
+### 7.3 Reservation Endpoints (Port 5030)
+- `GET /api/reservations`: Get reservations list.
 - `POST /api/reservations`: Request booking. Triggers lock validation and quota checks.
 - `PUT /api/reservations/:id/checkin`: Mark booking as checked in.
 - `PUT /api/reservations/:id/complete`: Complete a check-in.
 - `PUT /api/reservations/:id/cancel`: Cancel reservation. Triggers waitlist promotion event.
+- `GET /api/resources/:id/alternatives`: Fetch smart recommendations (alternative slots/resources) in case of a scheduling conflict.
+- `POST /api/admin/reservations/:id/approve`: Approve a booking with status `PendingApproval` (Admin only).
+- `POST /api/admin/reservations/:id/reject`: Reject/cancel a booking with status `PendingApproval` (Admin only).
 
-### 7.3 Waitlist Endpoints (Port 5040)
+### 7.4 Waitlist Endpoints (Port 5040)
 - `GET /api/waitlists`: Retrieve waitlist records.
 - `POST /api/waitlists`: Join waitlist queue for a resource and slot.
 - `POST /api/waitlists/:id/confirm`: Confirm promotion claim.
 - `POST /api/waitlists/:id/reject`: Decline promotion claim.
 
-### 7.4 Notification Endpoints (Port 5050)
+### 7.5 Notification Endpoints (Port 5050)
 - `GET /api/notifications`: Retrieve user notification history.
 - `POST /api/notifications/:id/read`: Mark notification as read.
 - `POST /api/notifications/read-all`: Mark all notifications as read.
 
-### 7.5 Admin Settings Endpoints (Port 5030)
+### 7.6 Admin Settings Endpoints (Port 5030)
 - `GET /api/admin/settings`: Retrieve access weight settings.
 - `PUT /api/admin/settings`: Update settings.
 
-### 7.6 AI Assistant Endpoints (Port 5070)
+### 7.7 AI Assistant Endpoints (Port 5070)
 - `POST /api/ai/chat`: Sends a natural language query along with request context and user authorization headers. Responds with the AI's explanation and a structured booking/waitlist action payload.
 
 ---
