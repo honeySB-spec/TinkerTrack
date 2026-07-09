@@ -4,20 +4,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "server": "node server.js",
+    "server": "node services/shared/db-init.js && concurrently \"node services/gateway/gateway.js\" \"node services/auth/auth.js\" \"node services/catalog/catalog.js\" \"node services/reservation/reservation.js\" \"node services/waitlist/waitlist.js\" \"node services/notifications/notifications.js\" \"node services/analytics/analytics.js\"",
     "client": "vite",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "amqplib": "^2.0.1",
     "concurrently": "^9.1.2",
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "express-http-proxy": "^2.1.2",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.471.0",
+    "pg": "^8.22.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "redis": "^6.1.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

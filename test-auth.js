@@ -1,22 +1,20 @@
 import { spawn } from 'child_process';
-import db from './db.js';
+import { initDb } from './services/shared/db-init.js';
 
 const PORT = 5001;
 
 console.log("Starting temporary server for Authentication and JWT verification...");
 
 // Set up clean database state
-db.transaction(() => {
-  db.save(); // Save seeded state
-})();
+await initDb();
 
-const child = spawn('node', ['server.js'], {
+const child = spawn('node', ['services/gateway/gateway.js'], {
   env: { ...process.env, PORT: String(PORT) }
 });
 
 child.stdout.on('data', (data) => {
   const output = data.toString();
-  if (output.includes('API Server running')) {
+  if (output.includes('API Gateway] Running on port')) {
     runAuthTests();
   }
 });

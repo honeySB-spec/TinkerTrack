@@ -1,35 +1,20 @@
-import http from 'http';
-import db from './db.js';
+import { spawn } from 'child_process';
+import { initDb } from './services/shared/db-init.js';
 
-// We import the server's listener by starting a temporary server instance
-// To avoid conflicts, we'll run the API logic directly by mocking a fast server or making direct concurrent calls to our backend!
-// Since we want to test our backend's Express endpoints under actual concurrency:
 const PORT = 5001;
 
 console.log("Starting temporary test server on port 5001...");
 
 // Set up clean database state for test
-// Delete any existing bookings for resource ID 1 on our test slot date
-db.transaction(() => {
-  db.save(); // Save current state
-})();
+await initDb();
 
-// We will send mock concurrent requests directly to the express listener
-// Let's dynamically import the express app but run it on 5001.
-// To do this, we can start our server.js in another process, or just start it here by setting process.env.PORT.
-// Or even simpler: we can test the concurrency of the db.createReservation function itself!
-// Wait! testing the API endpoint is much better because it tests both the Lock Manager (Layer 1) and the DB constraints (Layer 3) under concurrent event loop ticks.
-// Let's launch a child process of server.js on port 5001.
-
-import { spawn } from 'child_process';
-
-const child = spawn('node', ['server.js'], {
+const child = spawn('node', ['services/gateway/gateway.js'], {
   env: { ...process.env, PORT: String(PORT) }
 });
 
 child.stdout.on('data', (data) => {
   const output = data.toString();
-  if (output.includes('API Server running')) {
+  if (output.includes('API Gateway] Running on port')) {
     runConcurrencyTest();
   }
 });
@@ -69,16 +54,6 @@ async function runConcurrencyTest() {
     start_time: "2026-07-20 14:00",
     end_time: "2026-07-20 15:00"
   };
-
-  // Ensure database has no conflicting active bookings for this slot before we start
-  const existing = db.getReservations().filter(r => 
-    r.resource_id === 1 && 
-    r.start_time === testBooking.start_time && 
-    ['Confirmed', 'PendingApproval', 'CheckedIn'].includes(r.status)
-  );
-  for (const r of existing) {
-    db.updateReservationStatus(r.id, 'Cancelled');
-  }
 
   console.log(`Sending concurrent requests to http://localhost:${PORT}/api/reservations ...`);
   
