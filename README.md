@@ -47,7 +47,17 @@ npm run dev
 - **Notification Microservice**: Runs on port `5050`
 - **Analytics Microservice**: Runs on port `5060`
 
-### 6. Running Integration Tests
+### 6. Default Test Users
+Once the database is initialized and seeded, you can sign in to the web application or run tests with the following accounts:
+
+| User | Role | Email | Password |
+| :--- | :--- | :--- | :--- |
+| **David (Admin)** | Admin | `admin@tinkertrack.edu` | `admin123` |
+| Charlie (Staff) | Staff | `charlie@tinkertrack.edu` | `pass123` |
+| Bob (Graduate) | Graduate | `bob@tinkertrack.edu` | `pass123` |
+| Alice (Undergrad) | Undergraduate | `alice@tinkertrack.edu` | `pass123` |
+
+### 7. Running Integration Tests
 The tests run a gateway instance on port `5001` that routes to your running backend services. Make sure the backend services are running (`npm run server`) before running tests.
 
 - **Test JWT Auth & PBKDF2 Hashing**:
