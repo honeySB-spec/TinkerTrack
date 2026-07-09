@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "server": "node services/shared/db-init.js && concurrently \"node services/gateway/gateway.js\" \"node services/auth/auth.js\" \"node services/catalog/catalog.js\" \"node services/reservation/reservation.js\" \"node services/waitlist/waitlist.js\" \"node services/notifications/notifications.js\" \"node services/analytics/analytics.js\"",
+    "server": "node services/shared/db-init.js && concurrently \"node services/gateway/gateway.js\" \"node services/auth/auth.js\" \"node services/catalog/catalog.js\" \"node services/reservation/reservation.js\" \"node services/waitlist/waitlist.js\" \"node services/notifications/notifications.js\" \"node services/analytics/analytics.js\" \"node services/ai/ai.js\"",
     "client": "vite",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "build": "vite build",

@@ -4,6 +4,29 @@ TinkerTrack is a high-performance, concurrent, and intelligent resource booking 
 
 ---
 
+## 🛠️ Technology Stack
+
+TinkerTrack is built on a decoupled, production-grade stack to ensure high performance, reliable message delivery, and robust concurrency handling:
+
+### Backend Services
+- **Runtime Environment**: **Node.js** (v18+) with **Express** (v4) for microservice APIs.
+- **API Gateway & Routing**: Built using `express-http-proxy` to act as a single entrypoint with state-agnostic JWT validation.
+- **AI Engine**: Integrated with **Google Gemini API** for natural language conversational booking processing.
+
+### Databases & Cache
+- **Primary Relational Database**: **PostgreSQL 14** (leveraging native `tsrange` types, `gist` index exclusion constraints, and complex time-series queries).
+- **Distributed Cache / Lock Registry**: **Redis 7** (for low-latency distributed mutex locks to handle concurrent reservation contention).
+
+### Messaging Broker
+- **Event Bus / Message Broker**: **RabbitMQ 4** (running a topic exchange named `tinkertrack_events` to manage asynchronous event propagation like waitlist auto-promotion, analytics, and notification processing).
+
+### Frontend Application
+- **Build Tool**: **Vite 6** (fast bundler and dev server).
+- **Library**: **React 19** (declarative component structure for the dynamic user interface).
+- **Icons & Styling**: **Lucide React** for icons, styled with vanilla **CSS variables** for custom layouts, grids, and themes.
+
+---
+
 ## 🚀 Setup & Run Instructions
 
 ### 1. Prerequisites
@@ -46,6 +69,7 @@ npm run dev
 - **Waitlist Priority Microservice**: Runs on port `5040`
 - **Notification Microservice**: Runs on port `5050`
 - **Analytics Microservice**: Runs on port `5060`
+- **AI Microservice (Gemini)**: Runs on port `5070`
 
 ### 6. Default Test Users
 Once the database is initialized and seeded, you can sign in to the web application or run tests with the following accounts:
@@ -118,6 +142,7 @@ TinkerTrack uses a decoupled, event-driven architecture to achieve low-latency s
 5. **Waitlist Service ([services/waitlist/waitlist.js](file:///Users/meta/Desktop/tinkeringlab/services/waitlist/waitlist.js))**: Listens to cancelled/recovered events. Automatically evaluates user priority scores, creates a temporary booking (`PendingApproval`), dispatches promotion events, and sweeps expired items.
 6. **Notification Service ([services/notifications/notifications.js](file:///Users/meta/Desktop/tinkeringlab/services/notifications/notifications.js))**: Consumes waitlist and booking approval events asynchronously to save persistent alerts and warn users of upcoming bookings.
 7. **Analytics Service ([services/analytics/analytics.js](file:///Users/meta/Desktop/tinkeringlab/services/analytics/analytics.js))**: Audits events to save `activity_logs` and runs resource usage analytics.
+8. **AI Service ([services/ai/ai.js](file:///Users/meta/Desktop/tinkeringlab/services/ai/ai.js))**: Conversational scheduling assistant. Leverages Google Gemini API to interpret natural language requests, checks timeslots and roles against current DB state, recommends alternatives, and returns structured booking actions.
 
 ---
 
@@ -163,9 +188,39 @@ Promoted users receive a temporary reservation with status `PendingApproval`. To
 
 ---
 
-## ✨ Additional Features Implemented
+## ✨ Key Platform Features
 
-- **Intelligent Scheduling (Alternatives)**: When booking fails due to a conflict, the system suggests alternative resources of the same category, or the next 3 closest available timeslots.
-- **Natural Language Processing AI Assistant**: A slide-out sidebar allows booking via queries like *"Book Study Room A tomorrow at 2 PM for 2 hours"*, parsing dates/times and rendering one-click booking buttons.
-- **Settings overrides**: Admin dashboard to change quotas, weights, and TTLs in real-time.
-- **Analytics aggregation**: Dashboard charts displaying utilization and popular hours calculated via time-series aggregates in Postgres.
+TinkerTrack provides a comprehensive ecosystem for high-concurrency resource management:
+
+### 1. Core Scheduling & Reservation Engine
+- **Visual Reservation Calendar**: Interactive scheduling grid allowing users to view real-time availability and request specific reservation slots.
+- **Smart Slot Recommendations**: If a requested slot is occupied, the system automatically suggests the next 3 closest available timeslots or alternative resources in the same category.
+- **Interactive Claims**: Streamlined check-in, completion, and cancellation workflows for active reservations directly from the user dashboard.
+
+### 2. Distributed Microservices Architecture
+- **API Gateway**: Single entrypoint routing, stateless JWT validation, and context injection (user ID, roles) into downstream microservice request headers.
+- **Dedicated Auth Service**: Manages secure user profiles and registrations with secure salted PBKDF2 password hashing.
+- **Resource Catalog Service**: Manages resource metadata, categories, role-based availability constraints, and maintenance statuses.
+- **Decoupled Event Channels**: Powered by RabbitMQ topic exchanges to run analytics, send notifications, and handle waitlist promotions asynchronously.
+
+### 3. High-Concurrency & Overlap Protection
+- **Distributed Redis Locks**: Prevents scheduling race conditions under concurrent spikes by locking resources before checking availability or writing.
+- **Postgres Exclusion Constraints**: Leverages GIST indices and `tsrange` checks to guarantee database-level integrity for overlapping half-open (`[)`) timestamps.
+
+### 4. Dynamic Fair-Use Waitlist Queue
+- **Dynamic Priority Formula**: Queue positions are computed dynamically based on the user's role weight (e.g., Staff: 30, Grad: 20, Undergrad: 10) minus active booking penalties to prevent resource hoarding.
+- **Auto-Promotion Engine**: Automatically promotes the highest-priority waitlisted candidate when a booking is cancelled or a resource recovered.
+- **Claim Timeouts (TTL)**: Automatically sweeps expired promotions after a 15-minute claim window using a background worker, promoting the next user in line.
+
+### 5. Gemini AI Scheduling Assistant
+- **Natural Language Parsing**: An integrated AI sidebar that translates user expressions (e.g., *"Book Lab Device B tomorrow at 3 PM for 1 hour"*) into absolute timestamps.
+- **Real-Time Database Verification**: Checks availability and role restrictions on the fly, offering direct inline action buttons to book or join the waitlist.
+
+### 6. Admin Controls & System Overrides
+- **Dynamic Settings Configuration**: Live adjustment of booking quotas, waitlist expiration claim windows, role weights, and active booking penalties.
+- **Maintenance State Management**: Ability to mark resources as unavailable or transition them back to available, triggering automatic waitlist promotions.
+
+### 7. Time-Series Analytics Dashboard
+- **Usage Metrics Charts**: Visual analytics representing resource utilization rates and popular scheduling hours calculated via Postgres time-series aggregates.
+- **Audit Logging**: Asynchronously tracked user action and activity logs compiled by the Analytics service.
+

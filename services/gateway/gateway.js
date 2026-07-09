@@ -49,7 +49,8 @@ const SERVICES = {
   reservation: 'http://localhost:5030',
   waitlist: 'http://localhost:5040',
   notifications: 'http://localhost:5050',
-  analytics: 'http://localhost:5060'
+  analytics: 'http://localhost:5060',
+  ai: 'http://localhost:5070'
 };
 
 const proxyOptions = {
@@ -97,6 +98,11 @@ app.use('/api/notifications', proxy(SERVICES.notifications, {
 app.use('/api/analytics', proxy(SERVICES.analytics, {
   ...proxyOptions,
   proxyReqPathResolver: req => '/api/analytics' + req.url
+}));
+
+app.use('/api/ai', proxy(SERVICES.ai, {
+  ...proxyOptions,
+  proxyReqPathResolver: req => '/api/ai' + req.url
 }));
 
 // Route admin/settings and admin/reservations to reservation service
