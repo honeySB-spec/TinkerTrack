@@ -12,6 +12,7 @@ function formatResource(row) {
   return {
     id: row.id,
     category_id: row.category_id,
+    category_name: row.category_name || 'Uncategorized',
     name: row.name,
     status: row.status,
     requires_approval: row.requires_approval ? 1 : 0,
@@ -23,7 +24,12 @@ function formatResource(row) {
 // 1. Get resources and categories
 app.get('/api/resources', async (req, res) => {
   try {
-    const resourcesRes = await pool.query("SELECT * FROM resources ORDER BY id ASC");
+    const resourcesRes = await pool.query(
+      `SELECT r.*, c.name as category_name 
+       FROM resources r 
+       LEFT JOIN categories c ON r.category_id = c.id 
+       ORDER BY r.id ASC`
+    );
     const categoriesRes = await pool.query("SELECT * FROM categories ORDER BY id ASC");
 
     const resources = resourcesRes.rows.map(formatResource);

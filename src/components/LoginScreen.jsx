@@ -6,6 +6,7 @@ export default function LoginScreen({ onLoginSuccess }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState('Undergraduate');
   const [error, setError] = useState('');
 
   const handleSubmit = (e) => {
@@ -13,7 +14,7 @@ export default function LoginScreen({ onLoginSuccess }) {
     setError('');
 
     const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
-    const payload = isRegister ? { name, email, password } : { email, password };
+    const payload = isRegister ? { name, email, password, role } : { email, password };
 
     fetch(endpoint, {
       method: 'POST',
@@ -60,21 +61,41 @@ export default function LoginScreen({ onLoginSuccess }) {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {isRegister && (
-            <div className="form-group">
-              <label>Full Name</label>
-              <div style={{ position: 'relative' }}>
-                <User size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-                <input
-                  type="text"
-                  className="form-control"
-                  style={{ paddingLeft: '32px' }}
-                  placeholder="John Doe"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
+            <>
+              <div className="form-group">
+                <label>Full Name</label>
+                <div style={{ position: 'relative' }}>
+                  <User size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                  <input
+                    type="text"
+                    className="form-control"
+                    style={{ paddingLeft: '32px' }}
+                    placeholder="John Doe"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
               </div>
-            </div>
+
+              <div className="form-group">
+                <label>Role</label>
+                <div style={{ position: 'relative' }}>
+                  <ShieldCheck size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
+                  <select
+                    className="form-control"
+                    style={{ paddingLeft: '32px', appearance: 'none', width: '100%', cursor: 'pointer' }}
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    required
+                  >
+                    <option value="Undergraduate">Undergraduate</option>
+                    <option value="Graduate">Graduate</option>
+                    <option value="Staff">Staff</option>
+                  </select>
+                </div>
+              </div>
+            </>
           )}
 
           <div className="form-group">
@@ -122,7 +143,7 @@ export default function LoginScreen({ onLoginSuccess }) {
             }}
             style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.85rem', cursor: 'pointer', textDecoration: 'underline' }}
           >
-            {isRegister ? 'Already have an account? Sign In' : 'Create new Undergraduate account'}
+            {isRegister ? 'Already have an account? Sign In' : 'Create new account'}
           </button>
         </div>
 

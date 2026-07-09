@@ -145,13 +145,13 @@ setInterval(checkWaitlistExpirations, 10000);
 
 // 1. Authentication Endpoints
 app.post('/api/auth/register', (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password, role } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ error: "Missing required fields (name, email, password)." });
   }
 
   try {
-    const id = db.createUser(name, email, password, "Undergraduate");
+    const id = db.createUser(name, email, password, role || "Undergraduate");
     const user = db.getUserById(id);
     const token = jwt.sign(
       { id: user.id, name: user.name, email: user.email, role: user.role_name },

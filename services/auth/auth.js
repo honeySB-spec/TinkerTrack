@@ -17,7 +17,7 @@ function hashPassword(password, salt) {
 
 // 1. Register User
 app.post('/api/auth/register', async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password, role } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ error: "Missing required fields (name, email, password)." });
   }
@@ -32,11 +32,18 @@ app.post('/api/auth/register', async (req, res) => {
     const salt = crypto.randomBytes(16).toString('hex');
     const pwdHash = hashPassword(password, salt);
 
+    const roleName = role || 'Undergraduate';
+    const roleRes = await pool.query("SELECT id FROM roles WHERE name = $1", [roleName]);
+    if (roleRes.rows.length === 0) {
+      return res.status(400).json({ error: "Invalid role specified." });
+    }
+    const roleId = roleRes.rows[0].id;
+
     // Insert user
     const insertRes = await pool.query(
       `INSERT INTO users (role_id, name, email, password_hash, salt) 
        VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [1, name, email, pwdHash, salt]
+      [roleId, name, email, pwdHash, salt]
     );
 
     const userId = insertRes.rows[0].id;

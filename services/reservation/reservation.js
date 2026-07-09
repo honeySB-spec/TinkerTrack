@@ -17,19 +17,26 @@ function formatDateTime(d) {
 app.get('/api/reservations', async (req, res) => {
   try {
     const reservationsRes = await pool.query(
-      `SELECT r.id, r.user_id, r.resource_id, r.start_time, r.end_time, r.status, res.name as resource_name 
+      `SELECT r.id, r.user_id, r.resource_id, r.start_time, r.end_time, r.status, 
+              res.name as resource_name, cat.name as category_name,
+              u.name as user_name, u.email as user_email
        FROM reservations r 
-       JOIN resources res ON r.resource_id = res.id 
+       LEFT JOIN resources res ON r.resource_id = res.id 
+       LEFT JOIN categories cat ON res.category_id = cat.id
+       LEFT JOIN users u ON r.user_id = u.id
        ORDER BY r.id ASC`
     );
     const formatted = reservationsRes.rows.map(row => ({
       id: row.id,
       user_id: row.user_id,
+      user_name: row.user_name || 'Unknown User',
+      user_email: row.user_email || '',
       resource_id: row.resource_id,
+      resource_name: row.resource_name || 'Unknown Resource',
+      category_name: row.category_name || 'Uncategorized',
       start_time: formatDateTime(new Date(row.start_time)),
       end_time: formatDateTime(new Date(row.end_time)),
-      status: row.status,
-      resource_name: row.resource_name
+      status: row.status
     }));
     res.json(formatted);
   } catch (error) {
