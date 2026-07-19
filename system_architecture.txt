@@ -1,0 +1,231 @@
+
+
+
+
+# TinkerTrack — Robust System Architecture Design
+
+This document details the production-ready system architecture for TinkerTrack. It is designed to handle high concurrency, ensure strict consistency (preventing double bookings), scale horizontally, and support advanced features such as waitlist management, notifications, analytics, and priority access control.
+
+## 1. Architectural Overview
+
+TinkerTrack utilizes a **Distributed Event-Driven Microservices Architecture** to separate concerns, achieve high availability, and support independent scaling of core functions.
+
+```
+                  +-----------------------------------+
+                  |        Client Applications        |
+                  |     (Web App, Mobile, Admin)      |
+                  +-----------------+-----------------+
+                                    |
+                                    v
+                  +-----------------+-----------------+
+                  |      Cloudflare CDN / WAF         |
+                  +-----------------+-----------------+
+                                    |
+                                    v
+                  +-----------------+-----------------+
+                  |           API Gateway             |
+                  |       (Reverse Proxy / Auth)      |
+                  +--------+-------+--------+---------+
+                           |       |        |
+         +-----------------+       |        +-----------------+
+         |                         v                          |
++--------v--------+       +--------v--------+       +---------v-------+
+|  User & Auth    |       |  Resource       |       |  Reservation    |
+|  Service        |       |  Catalog Serv.  |       |  Service        |
++--------+--------+       +--------+--------+       +---------+-------+
+         |                         |                          |
+         |                         |                          |
++--------v-------------------------v--------------------------v-------+
+|                       Distributed Cache (Redis)                     |
++----------------------------------+----------------------------------+
+                                   |
+                                   v
++----------------------------------+----------------------------------+
+|                   Database Layer (PostgreSQL - HA)                  |
++----------------------------------+----------------------------------+
+                                   |
+                                   v
++----------------------------------+----------------------------------+
+|              Message Broker (RabbitMQ / Apache Kafka)               |
++---+------------------------------+------------------------------+---+
+    |                              |                              |
+    v                              v                              v
++---+-------------+        +-------+---------+        +-----------+---+
+|  Waitlist       |        |  Notification   |        |  Analytics    |
+|  Service        |        |  Service        |        |  Service      |
++-----------------+        +-----------------+        +---------------+
+```
+
+### Key Architectural Patterns
+* **Database-per-Service**: To ensure loose coupling, services interact through well-defined APIs or events, rather than sharing a single database directly. The database layer shown is a logical representation; in production, services have dedicated schemas or database instances.
+* **CQRS (Command Query Responsibility Segregation)**: For resource discovery and search, data is indexed in **Elasticsearch** (read path), while mutations are done directly via PostgreSQL (write path).
+* **Outbox Pattern**: Changes to reservation states write to an outbox table in the same transaction to guarantee that events are published to the broker reliably (at-least-once delivery).
+
+---
+
+## 2. Database Architecture & Concurrency Control
+
+To guarantee data integrity and prevent double-booking, the core transaction management relies on a relational database system (**PostgreSQL**) with strict ACID properties and advanced index constraints.
+
+### 2.1 Entity Relationship Diagram (ERD)
+
+```
+  +------------------+           +------------------+
+  |      roles       |           |      users       |
+  +------------------+           +------------------+
+  | id (PK)          |<-----+    | id (PK)          |
+  | name             |      +---| role_id (FK)     |
+  | permissions      |           | name             |
+  +------------------+           | email            |
+                                 | password_hash    |
+  +------------------+           +--------+---------+
+  |    categories    |                    |
+  +------------------+                    |
+  | id (PK)          |<-----+             |
+  | name             |      |             |
+  | description      |      |             |
+  +------------------+      |             |
+                            |             |
+  +------------------+      |             |
+  |    resources     |      |             |
+  +------------------+      |             |
+  | id (PK)          |      |             |
+  | category_id (FK)-+------+             |
+  | name             |                    |
+  | status           |                    |
+  | metadata (JSONB) |                    |
+  +--------+---------+                    |
+           ^                              |
+           |                              |
+           |       +----------------------+
+           |       |
+  +--------+-------v--+          +------------------+
+  |   reservations    |          |    waitlists     |
+  +------------------+          +------------------+
+  | id (PK)          |          | id (PK)          |
+  | user_id (FK)     |<-------->| user_id (FK)     |
+  | resource_id (FK) |<-------->| resource_id (FK) |
+  | start_time       |          | priority_score   |
+  | end_time         |          | status           |
+  | status           |          +------------------+
+  | version (INT)    |
+  +------------------+
+```
+
+### 2.2 Preventing Double-Bookings (Concurrency Strategies)
+
+High concurrent requests for the same slot can cause race conditions. We implement a multi-layered concurrency prevention system:
+
+#### Layer 1: Distributed Lock (Redis Redlock)
+Before initiating database transactions, the Reservation Service attempts to acquire a distributed lock in Redis:
+* **Lock Key**: `lock:resource:{resource_id}:slot:{rounded_start_time}`
+* **TTL**: 5 seconds.
+* **Behavior**: If the lock is already held, the API immediately returns a `409 Conflict` (or retries with exponential backoff if configured), avoiding database overhead.
+
+#### Layer 2: Optimistic Locking (Application Level)
+When updating reservations (e.g., modifying time slots), the `version` field is checked:
+```sql
+UPDATE reservations 
+SET start_time = :new_start, end_time = :new_end, version = version + 1
+WHERE id = :reservation_id AND version = :current_version;
+```
+If 0 rows are updated, the request is rejected due to concurrent modification.
+
+#### Layer 3: Database Exclusion Constraints (Storage Level - Ground Truth)
+To prevent overlapping time ranges for the same resource, we utilize PostgreSQL's `EXCLUDE` constraint with `tsrange` (timestamp range type) and the `gist` index:
+```sql
+-- Ensure the btree_gist extension is enabled
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+ALTER TABLE reservations ADD CONSTRAINT no_overlapping_bookings
+EXCLUDE USING gist (
+    resource_id WITH =,
+    tsrange(start_time, end_time, '[]') WITH &&
+) WHERE (status IN ('Pending', 'Confirmed'));
+```
+* **Explanation**: The index ensures that for any two rows in the `reservations` table where `status` is either 'Pending' or 'Confirmed', they cannot have the same `resource_id` (`WITH =`) and overlapping timeslots (`tsrange ... WITH &&`). If a race condition bypasses application-level checks, PostgreSQL rejects the transaction, maintaining absolute consistency.
+
+---
+
+## 3. Detailed Service Design
+
+### 3.1 Reservation Service
+Manages the lifecycle of reservations: `Created` -> `Pending` -> `Confirmed` -> `CheckedIn` -> `Completed` / `Cancelled`.
+
+#### The Booking Process Workflow
+1. **Lock Acquisition**: Acquire Redis lock for the resource-time window.
+2. **Availability Check**: Query database for conflicting active reservations (`Confirmed` or `Pending`).
+3. **Transaction Initiation**:
+   * Insert new reservation record with status `Pending` (or `Confirmed` if no admin approval is required).
+   * Commit transaction.
+4. **Lock Release**: Release Redis lock.
+
+### 3.2 Waitlist Service & Priority Queue
+When a user attempts to book a resource that is unavailable, they can opt-in to join the waitlist.
+* **Waitlist Queue Structure**: Implemented using **Redis Sorted Sets (ZSETs)**.
+  * **Key**: `waitlist:resource:{resource_id}`
+  * **Score**: Calculated as `priority_score` + `unix_timestamp_delta`.
+    * Higher priority users (e.g., faculty, emergency bookings, users with higher subscription levels or lower weekly usage counts) receive a lower score or weight offset, placing them at the front of the queue.
+  * **Value**: `user_id`
+* **Auto-Promotion Flow**:
+  1. User A cancels their booking for Resource X.
+  2. `Reservation Service` publishes `RESERVATION_CANCELLED` event to the message broker.
+  3. `Waitlist Service` consumes the event, retrieves the top user (User B) from Redis ZSET.
+  4. The system creates a temporary, auto-expiring reservation (`status: PendingConfirmation`, TTL: 15 minutes) for User B.
+  5. `Notification Service` sends a push/SMS/email alert: *"A slot has opened up for Resource X! You have 15 minutes to claim it."*
+  6. If User B confirms, status becomes `Confirmed`. If the 15-minute TTL expires, a background scheduler cancels the reservation, and triggers the next promotion in the waitlist.
+
+### 3.3 Notification & Event-Driven Subsystem
+* **Tech Stack**: **RabbitMQ** (for fast, reliable message routing) or **Apache Kafka** (if high throughput tracking of events is needed).
+* **Decoupling**: The booking flow does not wait for email/SMS delivery. Services publish events (e.g., `RESERVATION_CREATED`, `WAITLIST_PROMOTED`) to the broker.
+* **Notification Workers**: Asynchronously consume events from RabbitMQ queues and dispatch notifications through third-party APIs (SendGrid, Twilio, Firebase Cloud Messaging).
+* **Delayed Message Exchange**: Used to handle expiration timers (e.g., the 15-minute window for waitlist promotion confirmation).
+
+### 3.4 Analytics & Metrics Subsystem
+Provides real-time dashboards for administrators to track resource utilization, peak booking hours, and popular resources.
+* **Data Flow**: Every check-in, checkout, cancellation, and creation event triggers an analytics worker.
+* **Storage**: Ingested into **TimescaleDB** (time-series extension for PostgreSQL) for fast aggregate queries (e.g., average utilization per day/week, booking durations).
+* **Visualizations**: Served via API endpoints consumed by charting libraries (e.g., Chart.js, Recharts) in the admin console.
+
+---
+
+## 4. Advanced Access Rules & Quota Management
+
+To prevent resource hoarding and enforce fair-use policies, we apply rules at the API Gateway and Service levels:
+
+1. **Quota Engine**: 
+   * Tracks booking limits (e.g., "maximum 3 active bookings per user" or "maximum 10 hours per week for premium equipment").
+   * Enforced via a Redis hash table tracking `user:weekly_hours:{user_id}` and `user:active_bookings:{user_id}`, updated atomically inside reservations transactions.
+2. **Approval Workflows**:
+   * Certain high-value resources (e.g., 3D printers, specialized chemical analyzers) require administrative approval.
+   * Booking created with `status = PendingApproval`. 
+   * Sends alert to the category administrator's dashboard. Once approved, state transitions to `Confirmed`.
+3. **Category Restrictions**:
+   * Role-based access control (RBAC). Users with role `Undergraduate` cannot book resources flagged as `GraduatesOnly` or `StaffOnly` in the resource metadata.
+
+---
+
+## 5. Security Architecture
+
+1. **Authentication & Authorization**:
+   * Authentication via stateless **JSON Web Tokens (JWT)** with short lifespan (15 minutes) paired with HTTP-only, secure, SameSite cookies for refresh tokens.
+   * RBAC configured at the API gateway level, blocking requests to `/api/admin/*` for non-admin accounts.
+2. **Network Security**:
+   * API Gateway behind **Cloudflare** for DDoS protection and Web Application Firewall (WAF) filtering.
+   * All internal service-to-service communication runs inside a private VPC using HTTPS (gRPC with mutual TLS - mTLS).
+3. **Input Validation & Sanitization**:
+   * Strict schema validation (e.g., using Joi/Zod) on all API endpoints to prevent SQL injection and cross-site scripting (XSS).
+
+---
+
+## 6. Resilience, Scalability & Disaster Recovery
+
+* **Horizontal Scaling**: All microservices are stateless and run in Docker containers managed by **Kubernetes (K8s)**, enabling auto-scaling based on CPU/Memory usage.
+* **Database High Availability**:
+   * PostgreSQL configured with Primary-Replica setup. Write operations target the Primary node, while read operations (like browsing resources) are distributed among multiple Read Replicas.
+   * **PgBouncer** used for connection pooling to handle high-frequency database connections efficiently.
+* **Disaster Recovery**:
+   * Daily automated database snapshots stored in multi-region, encrypted cloud storage (S3/GCS).
+   * Write-Ahead Logging (WAL) archived to enable Point-in-Time Recovery (PITR).
+* **Circuit Breakers**:
+   * Services use libraries like **Resilience4j** or **Hystrix** when talking to external integrations (e.g., SMS gateways). If the SMS gateway fails, the system degrades gracefully without breaking the core reservation flow.
