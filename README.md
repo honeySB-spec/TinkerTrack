@@ -2,7 +2,7 @@
 
 TinkerTrack is a high-performance, concurrent, and intelligent resource booking and waitlist management platform. Refactored from a monolithic codebase, this repository implements a **Distributed Event-Driven Microservices Architecture** utilizing PostgreSQL, Redis, and RabbitMQ to manage shared resources (study rooms, lab devices, media gear, etc.) for high-demand spaces.
 
----
+## 📼 Demo video: https://youtu.be/_xBCu_dyuD4
 
 ## 🛠️ Technology Stack
 
